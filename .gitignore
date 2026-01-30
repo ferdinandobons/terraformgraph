@@ -41,6 +41,10 @@ env/
 htmlcov/
 .hypothesis/
 
+# Type checking / Linting
+.mypy_cache/
+.ruff_cache/
+
 # Build outputs
 *.html
 !example/example-project-diagram.html
