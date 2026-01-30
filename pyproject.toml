@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terraform-diagram"
+version = "1.0.0"
+description = "Generate interactive architecture diagrams from Terraform configurations"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = [
+    "terraform",
+    "infrastructure",
+    "diagram",
+    "aws",
+    "visualization",
+    "architecture"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "python-hcl2>=4.3.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/terraform-diagram"
+Documentation = "https://github.com/yourusername/terraform-diagram#readme"
+Repository = "https://github.com/yourusername/terraform-diagram.git"
+Issues = "https://github.com/yourusername/terraform-diagram/issues"
+
+[project.scripts]
+terraform-diagram = "terraform_diagram.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["terraform_diagram*"]
+
+[tool.setuptools.package-data]
+terraform_diagram = ["config/*.yaml"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
