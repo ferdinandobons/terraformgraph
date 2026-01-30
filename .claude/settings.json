@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "superpowers-developing-for-claude-code@superpowers-marketplace": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "superpowers@superpowers-marketplace": true
+  }
+}
