@@ -6,12 +6,12 @@ import pytest
 
 
 @pytest.fixture
-def examples_dir() -> Path:
-    """Return path to examples directory."""
-    return Path(__file__).parent.parent / "examples"
+def example_dir() -> Path:
+    """Return path to example directory."""
+    return Path(__file__).parent.parent / "example"
 
 
 @pytest.fixture
-def simple_example(examples_dir) -> Path:
-    """Return path to simple example."""
-    return examples_dir / "simple"
+def simple_example(example_dir) -> Path:
+    """Return path to example (used by integration tests)."""
+    return example_dir
