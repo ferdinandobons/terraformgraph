@@ -45,10 +45,9 @@ htmlcov/
 *.html
 !docs/**/*.html
 
-# AWS Icons (user should download separately)
+# AWS Icons (downloaded icons that should not be committed)
 AWS_Icons/
 AWS_ICONS/
-aws-official-icons/
 aws-icons/
 
 # OS files
