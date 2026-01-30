@@ -1,0 +1,1706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Infrastructure Diagram</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 20px 25px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #232f3e;
+        }
+        .header .subtitle {
+            margin: 4px 0 0 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .stats {
+            display: flex;
+            gap: 30px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #8c4fff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .export-btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .export-btn-primary {
+            background: #8c4fff;
+            color: white;
+        }
+        .export-btn-primary:hover {
+            background: #7a3de8;
+        }
+        .export-btn-secondary {
+            background: #e9ecef;
+            color: #333;
+        }
+        .export-btn-secondary:hover {
+            background: #dee2e6;
+        }
+        .diagram-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            overflow: hidden;
+            position: relative;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .toolbar-info {
+            font-size: 13px;
+            color: #666;
+        }
+        .toolbar-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .toolbar-btn {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .toolbar-btn:hover {
+            background: #f0f0f0;
+            border-color: #ccc;
+        }
+        .diagram-wrapper {
+            padding: 20px;
+            overflow: auto;
+            max-height: 70vh;
+        }
+        .diagram-wrapper svg {
+            display: block;
+            margin: 0 auto;
+        }
+        .service.dragging {
+            opacity: 0.8;
+            cursor: grabbing !important;
+        }
+        .service:hover .service-bg {
+            stroke: #8c4fff;
+            stroke-width: 2;
+        }
+        /* Highlighting states */
+        .service.highlighted .service-bg {
+            stroke: #8c4fff;
+            stroke-width: 3;
+            filter: url(#shadow) drop-shadow(0 0 8px rgba(140, 79, 255, 0.5));
+        }
+        .service.dimmed {
+            opacity: 0.3;
+        }
+        .connection.highlighted .connection-path {
+            stroke-width: 3 !important;
+            opacity: 1 !important;
+        }
+        .connection.dimmed {
+            opacity: 0.1 !important;
+        }
+        .connection {
+            cursor: pointer;
+        }
+        .connection:hover .connection-path {
+            stroke-width: 3;
+            opacity: 1;
+        }
+        .connection-hitarea {
+            stroke: transparent;
+            stroke-width: 15;
+            fill: none;
+            cursor: pointer;
+        }
+        .legend {
+            margin-top: 20px;
+            padding: 20px 25px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .legend h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #232f3e;
+        }
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .legend-section h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .legend-items {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+        .legend-line {
+            width: 30px;
+            height: 3px;
+            border-radius: 2px;
+        }
+        .tooltip {
+            position: fixed;
+            padding: 10px 14px;
+            background: #232f3e;
+            color: white;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .export-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+        .export-modal.active {
+            display: flex;
+        }
+        .export-modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 400px;
+        }
+        .export-modal h3 {
+            margin: 0 0 20px 0;
+        }
+        .export-preview {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .export-modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .highlight-info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background: #232f3e;
+            color: white;
+            border-radius: 10px;
+            font-size: 14px;
+            line-height: 1.6;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: none;
+            max-width: 280px;
+        }
+        .highlight-info strong {
+            color: #8c4fff;
+        }
+        .highlight-info small {
+            color: #999;
+            display: block;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>AWS Infrastructure Diagram</h1>
+                <p class="subtitle">Environment: complex | Drag icons to reposition</p>
+            </div>
+            <div class="header-right">
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value">20</div>
+                        <div class="stat-label">Services</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">62</div>
+                        <div class="stat-label">Resources</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">24</div>
+                        <div class="stat-label">Connections</div>
+                    </div>
+                </div>
+                <div class="export-buttons">
+                    <button class="export-btn export-btn-secondary" onclick="exportAs('png')">Export PNG</button>
+                    <button class="export-btn export-btn-primary" onclick="exportAs('jpg')">Export JPG</button>
+                </div>
+            </div>
+        </div>
+        <div class="diagram-container">
+            <div class="toolbar">
+                <div class="toolbar-info">Click and drag services to reposition. Connections update automatically.</div>
+                <div class="toolbar-actions">
+                    <button class="toolbar-btn" onclick="resetPositions()">Reset Layout</button>
+                    <button class="toolbar-btn" onclick="savePositions()">Save Layout</button>
+                    <button class="toolbar-btn" onclick="loadPositions()">Load Layout</button>
+                </div>
+            </div>
+            <div class="diagram-wrapper" id="diagram-wrapper">
+                <svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink"
+            viewBox="0 0 1400 900"
+            width="1400" height="900">
+
+        <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#999"/>
+            </marker>
+            <marker id="arrowhead-data" markerWidth="10" markerHeight="7"
+                refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#3B48CC"/>
+            </marker>
+            <marker id="arrowhead-trigger" markerWidth="10" markerHeight="7"
+                refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#E7157B"/>
+            </marker>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+            </filter>
+        </defs>
+        
+<rect width="100%" height="100%" fill="#f8f9fa"/>
+
+        <g class="group group-aws_cloud" data-group-type="aws_cloud">
+            <rect class="group-bg" x="30" y="30" width="1340" height="840"
+                fill="#ffffff" stroke="#232f3e" stroke-width="2"
+                stroke-dasharray="8,4" rx="12" ry="12"
+                data-min-x="30" data-min-y="30"
+                data-max-x="1370" data-max-y="870"/>
+            <text x="45" y="52"
+                font-family="Arial, sans-serif" font-size="14" font-weight="bold"
+                fill="#232f3e">AWS Cloud</text>
+        </g>
+        
+
+        <g class="group group-vpc" data-group-type="vpc">
+            <rect class="group-bg" x="80" y="190" width="1240" height="180"
+                fill="#faf8ff" stroke="#8c4fff" stroke-width="2"
+                stroke-dasharray="8,4" rx="12" ry="12"
+                data-min-x="80" data-min-y="190"
+                data-max-x="1320" data-max-y="370"/>
+            <text x="95" y="212"
+                font-family="Arial, sans-serif" font-size="14" font-weight="bold"
+                fill="#8c4fff">VPC</text>
+        </g>
+        
+<g id="connections-layer">
+
+        <g class="connection" data-source="cloudfront.Cloudfront"
+           data-target="s3.S3"
+           data-conn-type="data_flow"
+           data-label="Origin">
+            <path class="connection-hitarea" d="M 752.0 142 Q 700.0 142, 700.0 272.0 T 648.0 402"/>
+            <path class="connection-path" d="M 752.0 142 Q 700.0 142, 700.0 272.0 T 648.0 402" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="cloudfront.Cloudfront"
+           data-target="alb.Alb"
+           data-conn-type="data_flow"
+           data-label="Origin">
+            <path class="connection-hitarea" d="M 752.0 142 Q 700.0 142, 700.0 189.5 T 648.0 237"/>
+            <path class="connection-path" d="M 752.0 142 Q 700.0 142, 700.0 189.5 T 648.0 237" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="waf.Waf"
+           data-target="cloudfront.Cloudfront"
+           data-conn-type="default"
+           data-label="Protect">
+            <path class="connection-hitarea" d="M 842.0 102.0 Q 817.0 102.0, 817.0 102.0 T 792.0 102.0"/>
+            <path class="connection-path" d="M 842.0 102.0 Q 817.0 102.0, 817.0 102.0 T 792.0 102.0" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="waf.Waf"
+           data-target="alb.Alb"
+           data-conn-type="default"
+           data-label="Protect">
+            <path class="connection-hitarea" d="M 842.0 102.0 Q 765.0 102.0, 765.0 189.5 T 688.0 277.0"/>
+            <path class="connection-path" d="M 842.0 102.0 Q 765.0 102.0, 765.0 189.5 T 688.0 277.0" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="route53.Route53"
+           data-target="cloudfront.Cloudfront"
+           data-conn-type="default"
+           data-label="DNS">
+            <path class="connection-hitarea" d="M 532.0 102.0 Q 622.0 102.0, 622.0 102.0 T 712.0 102.0"/>
+            <path class="connection-path" d="M 532.0 102.0 Q 622.0 102.0, 622.0 102.0 T 712.0 102.0" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="route53.Route53"
+           data-target="alb.Alb"
+           data-conn-type="default"
+           data-label="DNS">
+            <path class="connection-hitarea" d="M 492.0 142 Q 570.0 142, 570.0 189.5 T 648.0 237"/>
+            <path class="connection-path" d="M 492.0 142 Q 570.0 142, 570.0 189.5 T 648.0 237" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="acm.Acm"
+           data-target="cloudfront.Cloudfront"
+           data-conn-type="default"
+           data-label="TLS">
+            <path class="connection-hitarea" d="M 662.0 102.0 Q 687.0 102.0, 687.0 102.0 T 712.0 102.0"/>
+            <path class="connection-path" d="M 662.0 102.0 Q 687.0 102.0, 687.0 102.0 T 712.0 102.0" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="acm.Acm"
+           data-target="alb.Alb"
+           data-conn-type="default"
+           data-label="TLS">
+            <path class="connection-hitarea" d="M 622.0 142 Q 635.0 142, 635.0 189.5 T 648.0 237"/>
+            <path class="connection-path" d="M 622.0 142 Q 635.0 142, 635.0 189.5 T 648.0 237" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="alb.Alb"
+           data-target="ecs.Ecs"
+           data-conn-type="data_flow"
+           data-label="Route">
+            <path class="connection-hitarea" d="M 688.0 277.0 Q 713.0 277.0, 713.0 277.0 T 738.0 277.0"/>
+            <path class="connection-path" d="M 688.0 277.0 Q 713.0 277.0, 713.0 277.0 T 738.0 277.0" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="dynamodb.Dynamodb"
+           data-conn-type="data_flow"
+           data-label="Read/Write">
+            <path class="connection-hitarea" d="M 778.0 317 Q 778.0 317, 778.0 359.5 T 778.0 402"/>
+            <path class="connection-path" d="M 778.0 317 Q 778.0 317, 778.0 359.5 T 778.0 402" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="s3.S3"
+           data-conn-type="data_flow"
+           data-label="Read/Write">
+            <path class="connection-hitarea" d="M 778.0 317 Q 713.0 317, 713.0 359.5 T 648.0 402"/>
+            <path class="connection-path" d="M 778.0 317 Q 713.0 317, 713.0 359.5 T 648.0 402" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="rds.Rds"
+           data-conn-type="data_flow"
+           data-label="Read/Write">
+            <path class="connection-hitarea" d="M 778.0 317 Q 778.0 317, 778.0 459.5 T 778.0 602"/>
+            <path class="connection-path" d="M 778.0 317 Q 778.0 317, 778.0 459.5 T 778.0 602" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="elasticache.Elasticache"
+           data-conn-type="data_flow"
+           data-label="Cache">
+            <path class="connection-hitarea" d="M 778.0 317 Q 843.0 317, 843.0 459.5 T 908.0 602"/>
+            <path class="connection-path" d="M 778.0 317 Q 843.0 317, 843.0 459.5 T 908.0 602" fill="none" stroke="#3B48CC"
+                stroke-width="1.5"  marker-end="url(#arrowhead-data)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="sqs.Sqs"
+           data-conn-type="trigger"
+           data-label="Queue">
+            <path class="connection-hitarea" d="M 778.0 317 Q 687.0 317, 687.0 409.5 T 596.0 502"/>
+            <path class="connection-path" d="M 778.0 317 Q 687.0 317, 687.0 409.5 T 596.0 502" fill="none" stroke="#E7157B"
+                stroke-width="1.5"  marker-end="url(#arrowhead-trigger)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="ecs.Ecs"
+           data-target="sns.Sns"
+           data-conn-type="trigger"
+           data-label="Publish">
+            <path class="connection-hitarea" d="M 778.0 317 Q 752.0 317, 752.0 409.5 T 726.0 502"/>
+            <path class="connection-path" d="M 778.0 317 Q 752.0 317, 752.0 409.5 T 726.0 502" fill="none" stroke="#E7157B"
+                stroke-width="1.5"  marker-end="url(#arrowhead-trigger)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="sns.Sns"
+           data-target="sqs.Sqs"
+           data-conn-type="trigger"
+           data-label="Subscribe">
+            <path class="connection-hitarea" d="M 686.0 542.0 Q 661.0 542.0, 661.0 542.0 T 636.0 542.0"/>
+            <path class="connection-path" d="M 686.0 542.0 Q 661.0 542.0, 661.0 542.0 T 636.0 542.0" fill="none" stroke="#E7157B"
+                stroke-width="1.5"  marker-end="url(#arrowhead-trigger)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="eventbridge.Eventbridge"
+           data-target="sqs.Sqs"
+           data-conn-type="trigger"
+           data-label="Route">
+            <path class="connection-hitarea" d="M 816.0 542.0 Q 726.0 542.0, 726.0 542.0 T 636.0 542.0"/>
+            <path class="connection-path" d="M 816.0 542.0 Q 726.0 542.0, 726.0 542.0 T 636.0 542.0" fill="none" stroke="#E7157B"
+                stroke-width="1.5"  marker-end="url(#arrowhead-trigger)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="kms.Kms"
+           data-target="s3.S3"
+           data-conn-type="encrypt"
+           data-label="Encrypt">
+            <path class="connection-hitarea" d="M 428.0 642.0 Q 518.0 642.0, 518.0 542.0 T 608.0 442.0"/>
+            <path class="connection-path" d="M 428.0 642.0 Q 518.0 642.0, 518.0 542.0 T 608.0 442.0" fill="none" stroke="#6c757d"
+                stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="kms.Kms"
+           data-target="dynamodb.Dynamodb"
+           data-conn-type="encrypt"
+           data-label="Encrypt">
+            <path class="connection-hitarea" d="M 428.0 642.0 Q 583.0 642.0, 583.0 542.0 T 738.0 442.0"/>
+            <path class="connection-path" d="M 428.0 642.0 Q 583.0 642.0, 583.0 542.0 T 738.0 442.0" fill="none" stroke="#6c757d"
+                stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="kms.Kms"
+           data-target="sqs.Sqs"
+           data-conn-type="encrypt"
+           data-label="Encrypt">
+            <path class="connection-hitarea" d="M 428.0 642.0 Q 492.0 642.0, 492.0 592.0 T 556.0 542.0"/>
+            <path class="connection-path" d="M 428.0 642.0 Q 492.0 642.0, 492.0 592.0 T 556.0 542.0" fill="none" stroke="#6c757d"
+                stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="kms.Kms"
+           data-target="sns.Sns"
+           data-conn-type="encrypt"
+           data-label="Encrypt">
+            <path class="connection-hitarea" d="M 428.0 642.0 Q 557.0 642.0, 557.0 592.0 T 686.0 542.0"/>
+            <path class="connection-path" d="M 428.0 642.0 Q 557.0 642.0, 557.0 592.0 T 686.0 542.0" fill="none" stroke="#6c757d"
+                stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="kms.Kms"
+           data-target="secrets_manager.Secrets Manager"
+           data-conn-type="encrypt"
+           data-label="Encrypt">
+            <path class="connection-hitarea" d="M 428.0 642.0 Q 713.0 642.0, 713.0 642.0 T 998.0 642.0"/>
+            <path class="connection-path" d="M 428.0 642.0 Q 713.0 642.0, 713.0 642.0 T 998.0 642.0" fill="none" stroke="#6c757d"
+                stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="secrets_manager.Secrets Manager"
+           data-target="ecs.Ecs"
+           data-conn-type="default"
+           data-label="Inject">
+            <path class="connection-hitarea" d="M 1038.0 602 Q 908.0 602, 908.0 459.5 T 778.0 317"/>
+            <path class="connection-path" d="M 1038.0 602 Q 908.0 602, 908.0 459.5 T 778.0 317" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+
+        <g class="connection" data-source="cognito.Cognito"
+           data-target="alb.Alb"
+           data-conn-type="default"
+           data-label="Auth">
+            <path class="connection-hitarea" d="M 972.0 102.0 Q 830.0 102.0, 830.0 189.5 T 688.0 277.0"/>
+            <path class="connection-path" d="M 972.0 102.0 Q 830.0 102.0, 830.0 189.5 T 688.0 277.0" fill="none" stroke="#999999"
+                stroke-width="1.5"  marker-end="url(#arrowhead)" opacity="0.7"/>
+        </g>
+        
+</g>
+<g id="services-layer">
+
+            <g class="service draggable" data-service-id="security_groups.Security Groups"
+               data-tooltip="Security Groups (4 resources)" data-is-vpc="true"
+               transform="translate(616.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-Network-Firewall_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-Network-Firewall_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <g id="Icon-Service/48/AWS-Network-Firewall_48" transform="translate(10.000000, 10.000000)" fill="#FFFFFF">
+            <path d="M42,35.9929544 L35,35.9929544 L33,35.9929544 L33,31.9929544 L40,31.9929544 L42,31.9929544 L42,35.9929544 Z M34,41.9929544 L25.019,41.9929544 L25.093,37.9929544 L32,37.9929544 L34,37.9929544 L34,41.9929544 Z M17.793,40.2039544 C14.626,40.2039544 11.72,38.6069544 10.019,35.9319544 C8.673,33.8169544 8.649,31.0839544 9.998,28.7319544 C11.527,26.4099544 11.163,23.2829544 10.687,21.2889544 C11.951,22.1599544 13.074,23.8019544 13.467,24.5059544 C13.657,24.8479544 14.028,25.0409544 14.42,25.0159544 C14.811,24.9849544 15.146,24.7299544 15.28,24.3619544 C16.678,20.5229544 15.969,17.6349544 14.983,15.7609544 C18.184,16.9819544 23,19.9529544 23,26.7709544 C23,27.0429544 23.111,27.3049544 23.309,27.4929544 C23.505,27.6819544 23.764,27.7719544 24.043,27.7699544 C24.823,27.7359544 26.097,27.2439544 27,25.8699544 L27,29.9929544 L21,29.9929544 C20.447,29.9929544 20,30.4409544 20,30.9929544 L20,36.9929544 C20,37.5449544 20.447,37.9929544 21,37.9929544 L23.093,37.9929544 L23.08,38.6479544 C21.777,39.6429544 19.896,40.2039544 17.793,40.2039544 L17.793,40.2039544 Z M5.209,26.4849544 C3.745,25.5149544 2,23.6689544 2,20.3829544 C2,15.9009544 5.118,14.4309544 6.977,13.9529544 C7.439,13.8339544 7.754,13.4039544 7.726,12.9259544 L7.65,11.6649544 C7.65,8.05595442 10.134,4.17495442 13.303,2.82895442 C18.79,0.495954424 22.682,3.56295442 24.102,4.98995442 C25.26,6.15495442 26.163,7.64495442 26.787,9.41795442 C26.91,9.76695442 27.217,10.0199544 27.583,10.0749544 C27.943,10.1289544 28.316,9.97695442 28.535,9.67895442 C29.439,8.45195442 30.993,7.93695442 32.407,8.40195442 C34.011,8.92895442 34.931,10.5189544 34.929,12.7019544 C34.849,13.2399544 35.212,13.7429544 35.748,13.8359544 C39.955,14.5609544 42,16.5749544 42,19.9929544 C42,21.8099544 41.58,23.2409544 40.739,24.3329544 C40.557,24.1279544 40.297,23.9929544 40,23.9929544 L29.104,23.9929544 C28.803,22.8109544 27.96,22.1089544 27.414,21.8609544 C27.121,21.7269544 26.781,21.7429544 26.503,21.9029544 C26.225,22.0619544 26.039,22.3469544 26.006,22.6659544 C25.855,24.0979544 25.385,24.8699544 24.931,25.2869544 C23.941,14.8749544 12.636,13.0219544 12.517,13.0039544 C12.077,12.9389544 11.638,13.1749544 11.453,13.5879544 C11.271,13.9999544 11.388,14.4849544 11.737,14.7699544 C11.872,14.8809544 14.651,17.2159544 13.936,21.6559544 C12.845,20.2989544 11.148,18.7219544 9.163,18.7219544 C8.831,18.7219544 8.521,18.8879544 8.335,19.1619544 C8.149,19.4369544 8.111,19.7859544 8.234,20.0949544 C8.252,20.1389544 9.848,24.2169544 8.661,26.9929544 L6.938,26.9929544 C6.308,26.9929544 5.71,26.8169544 5.209,26.4849544 L5.209,26.4849544 Z M32,29.9929544 L29,29.9929544 L29,25.9929544 L39,25.9929544 L39,29.9929544 L32,29.9929544 Z M22,35.9929544 L22,31.9929544 L28,31.9929544 L31,31.9929544 L31,35.9929544 L24.111,35.9929544 L22,35.9929544 Z M43,29.9929544 L41,29.9929544 L41,26.8719544 C42.983,25.3329544 44,23.0279544 44,19.9929544 C44,17.0389544 42.742,13.3259544 36.902,12.0249544 C36.688,9.27795442 35.275,7.23995442 33.031,6.50195442 C31.327,5.94195442 29.493,6.27595442 28.091,7.31995442 C27.419,5.87895442 26.558,4.62495442 25.52,3.57995442 C21.969,0.0079544242 17.109,-0.960045576 12.521,0.987954424 C8.605,2.65195442 5.65,7.24195442 5.652,11.7239544 L5.684,12.2569544 C3.514,13.0109544 0,15.0559544 0,20.3829544 C0,24.7769544 2.571,27.1369544 4.104,28.1519544 C4.933,28.7019544 5.913,28.9929544 6.938,28.9929544 L7.654,28.9929544 C6.589,31.6529544 6.815,34.6229544 8.331,37.0059544 C10.401,40.2609544 13.938,42.2039544 17.793,42.2039544 C19.741,42.2039544 21.549,41.7789544 23.036,41.0149544 L23,42.9739544 C22.995,43.2429544 23.099,43.5019544 23.286,43.6939544 C23.475,43.8849544 23.731,43.9929544 24,43.9929544 L35,43.9929544 C35.553,43.9929544 36,43.5449544 36,42.9929544 L36,37.9929544 L43,37.9929544 C43.553,37.9929544 44,37.5449544 44,36.9929544 L44,30.9929544 C44,30.4409544 43.553,29.9929544 43,29.9929544 L43,29.9929544 Z" id="Fill-3"></path>
+        </g>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Security Groups
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#DD344C" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">4</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="alb.Alb"
+               data-tooltip="Alb (3 resources)" data-is-vpc="true"
+               transform="translate(616.0, 245)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Elastic-Load-Balancing_48</title>
+    <g id="Icon-Architecture/48/Arch_Elastic-Load-Balancing_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Networking-Content-Delivery" fill="#8C4FFF">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M23.5,42 C17.71,42 13,37.29 13,31.5 C13,25.71 17.71,21 23.5,21 C29.29,21 34,25.71 34,31.5 C34,37.29 29.29,42 23.5,42 M48,48 C48,49.654 46.654,51 45,51 C43.346,51 42,49.654 42,48 C42,46.346 43.346,45 45,45 C46.654,45 48,46.346 48,48 M45,13 C46.654,13 48,14.346 48,16 C48,17.654 46.654,19 45,19 C43.346,19 42,17.654 42,16 C42,14.346 43.346,13 45,13 M48,29 C49.654,29 51,30.346 51,32 C51,33.654 49.654,35 48,35 C46.346,35 45,33.654 45,32 C45,30.346 46.346,29 48,29 M35.901,33 L43.102,33 C43.565,35.279 45.586,37 48,37 C50.757,37 53,34.757 53,32 C53,29.243 50.757,27 48,27 C45.586,27 43.565,28.721 43.102,31 L35.975,31 C35.916,29.541 35.614,28.146 35.096,26.856 L42.799,20.467 C43.466,20.797 44.206,21 45,21 C47.757,21 50,18.757 50,16 C50,13.243 47.757,11 45,11 C42.243,11 40,13.243 40,16 C40,17.224 40.459,18.331 41.191,19.201 L34.172,25.024 C31.977,21.42 28.021,19 23.5,19 C16.607,19 11,24.607 11,31.5 C11,38.393 16.607,44 23.5,44 C27.743,44 31.493,41.871 33.754,38.629 L41.191,44.799 C40.459,45.669 40,46.776 40,48 C40,50.757 42.243,53 45,53 C47.757,53 50,50.757 50,48 C50,45.243 47.757,43 45,43 C44.206,43 43.466,43.203 42.799,43.533 L34.77,36.873 C35.344,35.673 35.736,34.373 35.901,33" id="Elastic-Load-Balancing_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Alb
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="ecs.Ecs"
+               data-tooltip="Ecs (5 resources)" data-is-vpc="true"
+               transform="translate(746.0, 245)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Elastic-Container-Service_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Elastic-Container-Service_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Compute" fill="#ED7100">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M50,36.3822466 L44,33.3822885 L44,25.0004058 C44,24.6374109 43.803,24.3024156 43.485,24.1264181 L35,19.412484 L35,12.7495773 L50,21.5724538 L50,36.3822466 Z M51.507,20.1384739 L34.507,10.1386138 C34.199,9.95761637 33.815,9.95461641 33.504,10.1326139 C33.192,10.3106114 33,10.6416068 33,11.0006018 L33,20.0004758 C33,20.3634707 33.197,20.6984661 33.515,20.8744636 L42,25.5883976 L42,34.0002799 C42,34.3792746 42.214,34.7252697 42.553,34.8952674 L50.553,38.8952114 C50.694,38.9652104 50.847,39.0002099 51,39.0002099 C51.183,39.0002099 51.365,38.9502106 51.525,38.851212 C51.82,38.6682146 52,38.3472191 52,38.0002239 L52,21.0004618 C52,20.6464668 51.812,20.3184714 51.507,20.1384739 L51.507,20.1384739 Z M32,51.8280304 L15,41.4391758 L15,21.5544541 L29,12.8045765 L29,19.4464836 L21.47,24.1524177 C21.178,24.3354152 21,24.6554107 21,25.0004058 L21,38.0002239 C21,38.351219 21.185,38.6772144 21.485,38.8572119 L31.485,44.857128 C31.789,45.0401254 32.167,45.0481253 32.479,44.8781277 L42.988,39.1462079 L48.035,42.0291675 L32,51.8280304 Z M50.496,41.1321801 L43.496,37.1322361 C43.194,36.9592385 42.825,36.9562385 42.521,37.1222362 L32.023,42.8481561 L23,37.4342318 L23,25.5543981 L30.53,20.848464 C30.822,20.6654665 31,20.345471 31,20.0004758 L31,11.0006018 C31,10.6366069 30.803,10.3026115 30.484,10.125614 C30.168,9.9486165 29.778,9.95961634 29.47,10.1526136 L13.47,20.1524737 C13.178,20.3354711 13,20.6554667 13,21.0004618 L13,42.0001679 C13,42.3481631 13.182,42.6711585 13.479,42.854156 L31.479,53.854002 C31.639,53.9510007 31.819,54 32,54 C32.181,54 32.361,53.9510007 32.521,53.854002 L50.521,42.854156 C50.823,42.6691586 51.005,42.3391632 51.0001004,41.9851681 C50.995,41.6321731 50.803,41.3071776 50.496,41.1321801 L50.496,41.1321801 Z" id="Amazon-Elastic-Container-Service_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Ecs
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#ED7100" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">5</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="rds.Rds"
+               data-tooltip="Rds (2 resources)" data-is-vpc="true"
+               transform="translate(746.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-RDS_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-RDS_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Database" fill="#C925D1">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M54,11 L54,19 L52,19 L52,13.414 L45.707,19.707 L44.293,18.293 L50.586,12 L45.125,12 L45.125,10 L53,10 C53.553,10 54,10.448 54,11 L54,11 Z M12,18.875 L10,18.875 L10,11 C10,10.448 10.447,10 11,10 L19,10 L19,12 L13.414,12 L19.707,18.293 L18.293,19.707 L12,13.414 L12,18.875 Z M19.707,45.707 L13.414,52 L18.875,52 L18.875,54 L11,54 C10.447,54 10,53.552 10,53 L10,45 L12,45 L12,50.586 L18.293,44.293 L19.707,45.707 Z M51.5,31.781 C51.5,29.352 48.634,26.932 43.833,25.307 L44.474,23.413 C50.21,25.354 53.5,28.404 53.5,31.781 C53.5,35.158 50.21,38.208 44.474,40.15 L43.833,38.255 C48.634,36.631 51.5,34.21 51.5,31.781 L51.5,31.781 Z M12.543,31.781 C12.543,34.105 15.224,36.46 19.715,38.081 L19.035,39.961 C13.639,38.014 10.543,35.033 10.543,31.781 C10.543,28.53 13.639,25.548 19.035,23.601 L19.715,25.482 C15.224,27.103 12.543,29.458 12.543,31.781 L12.543,31.781 Z M52,45.125 L54,45.125 L54,53 C54,53.552 53.553,54 53,54 L45,54 L45,52 L50.586,52 L44.293,45.707 L45.707,44.293 L52,50.586 L52,45.125 Z M32.022,31.402 C26.999,31.402 24.126,30.059 24,29.483 L24,26.257 C26.159,27.266 29.609,27.593 32,27.593 C34.391,27.593 37.841,27.266 40,26.257 L40,29.483 C39.894,30.057 37.051,31.402 32.022,31.402 L32.022,31.402 Z M32.022,37.13 C26.999,37.13 24.126,35.786 24,35.21 L24,31.956 C25.953,32.937 29.055,33.402 32.022,33.402 C34.973,33.402 38.055,32.938 40,31.96 L40,35.21 C39.894,35.785 37.052,37.13 32.022,37.13 L32.022,37.13 Z M32,42.268 C26.95,42.268 24.104,40.917 24,40.346 L24,37.683 C25.953,38.665 29.055,39.13 32.022,39.13 C34.973,39.13 38.055,38.666 40,37.687 L40,40.342 C39.896,40.917 37.05,42.268 32,42.268 L32,42.268 Z M32,22.193 C36.971,22.193 39.642,23.37 39.982,23.894 C39.642,24.417 36.971,25.593 32,25.593 C26.909,25.593 24.233,24.361 24,23.949 L24,23.93 C24.233,23.426 26.909,22.193 32,22.193 L32,22.193 Z M32,20.193 C28.286,20.193 22,20.973 22,23.894 L22,40.346 C22,43.041 27.184,44.268 32,44.268 C36.816,44.268 42,43.041 42,40.346 L42,23.894 C42,20.973 35.714,20.193 32,20.193 L32,20.193 Z" id="Amazon-RDS_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Rds
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="elasticache.Elasticache"
+               data-tooltip="Elasticache (2 resources)" data-is-vpc="true"
+               transform="translate(876.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-ElastiCache_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-ElastiCache_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Database" fill="#C925D1">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M40.05,35.2787365 L40.05,30.6209876 C38.062,31.7238753 34.856,32.240291 31.664,32.240291 C28.314,32.240291 25.639,31.6868455 23.95,30.7240706 L23.95,35.2787365 C23.95,36.2315034 26.402,37.6426392 31.664,37.6426392 C37.17,37.6426392 40.05,36.1034003 40.05,35.2787365 L40.05,35.2787365 Z M40.05,42.0081529 L40.05,38.0249469 C38.062,39.1278346 34.856,39.6442503 31.664,39.6442503 C28.314,39.6442503 25.639,39.0908048 23.95,38.1270291 L23.95,42.0091537 C23.95,42.9619206 26.402,44.3720556 31.664,44.3720556 C37.17,44.3720556 40.05,42.8328167 40.05,42.0081529 L40.05,42.0081529 Z M40.05,48.6635097 L40.05,44.7543633 C38.062,45.857251 34.856,46.3736666 31.664,46.3736666 C28.314,46.3736666 25.639,45.8202212 23.95,44.8574462 L23.95,48.6635097 C23.95,49.6422975 26.632,50.9983889 31.667,50.9983889 C37.171,50.9983889 40.05,49.4781654 40.05,48.6635097 L40.05,48.6635097 Z M23.95,27.8747773 C23.95,28.8655747 26.631,30.2386799 31.664,30.2386799 C37.17,30.2386799 40.05,28.699441 40.05,27.8747773 C40.05,27.0501135 37.17,25.5108746 31.664,25.5108746 C26.631,25.5108746 23.95,26.8839798 23.95,27.8747773 L23.95,27.8747773 Z M42.05,27.8747773 C42.05,27.9248175 42.037,27.9708546 42.034,28.0198941 L42.05,28.0198941 L42.05,48.6635097 C42.05,51.6589206 36.835,53 31.667,53 C25.765,53 21.95,51.2976298 21.95,48.6635097 L21.95,28.0188933 L21.963,28.0188933 C21.961,27.9708546 21.95,27.9238167 21.95,27.8747773 C21.95,25.2226426 25.763,23.5092636 31.664,23.5092636 C36.834,23.5092636 42.05,24.8583494 42.05,27.8747773 L42.05,27.8747773 Z M53,18.0048332 C53.553,18.0048332 54,17.5564723 54,17.0040276 L54,13.0008055 C54,12.4483609 53.553,12 53,12 L11,12 C10.447,12 10,12.4483609 10,13.0008055 L10,17.0040276 C10,17.5564723 10.447,18.0048332 11,18.0048332 C11.827,18.0048332 12.5,18.6783753 12.5,19.5060414 C12.5,20.3337076 11.827,21.0072497 11,21.0072497 C10.447,21.0072497 10,21.4546098 10,22.0080553 L10,38.0209437 C10,38.5733883 10.447,39.0217492 11,39.0217492 L19,39.0217492 L19,37.0201382 L15,37.0201382 L15,35.0185271 L19,35.0185271 L19,33.0169161 L14,33.0169161 C13.447,33.0169161 13,33.4652769 13,34.0177216 L13,37.0201382 L12,37.0201382 L12,22.8627432 C13.445,22.431396 14.5,21.0893158 14.5,19.5060414 C14.5,17.9217663 13.445,16.5796861 12,16.1483389 L12,14.0016111 L52,14.0016111 L52,16.1483389 C50.556,16.5796861 49.5,17.9217663 49.5,19.5060414 C49.5,21.0893158 50.556,22.431396 52,22.8627432 L52,37.0201382 L51,37.0201382 L51,34.0177216 C51,33.4652769 50.553,33.0169161 50,33.0169161 L45,33.0169161 L45,35.0185271 L49,35.0185271 L49,37.0201382 L45,37.0201382 L45,39.0217492 L53,39.0217492 C53.553,39.0217492 54,38.5733883 54,38.0209437 L54,22.0080553 C54,21.4546098 53.553,21.0072497 53,21.0072497 C52.173,21.0072497 51.5,20.3337076 51.5,19.5060414 C51.5,18.6783753 52.173,18.0048332 53,18.0048332 L53,18.0048332 Z M22,23.0088608 L22,17.0040276 C22,16.451583 21.553,16.0032221 21,16.0032221 L17,16.0032221 C16.447,16.0032221 16,16.451583 16,17.0040276 L16,30.0144995 C16,30.5669441 16.447,31.015305 17,31.015305 L19,31.015305 L19,29.0136939 L18,29.0136939 L18,18.0048332 L20,18.0048332 L20,23.0088608 L22,23.0088608 Z M46,29.0136939 L45,29.0136939 L45,31.015305 L47,31.015305 C47.553,31.015305 48,30.5669441 48,30.0144995 L48,17.0040276 C48,16.451583 47.553,16.0032221 47,16.0032221 L43,16.0032221 C42.447,16.0032221 42,16.451583 42,17.0040276 L42,23.0088608 L44,23.0088608 L44,18.0048332 L46,18.0048332 L46,29.0136939 Z M40,22.0080553 L40,17.0040276 C40,16.451583 39.553,16.0032221 39,16.0032221 L34,16.0032221 C33.447,16.0032221 33,16.451583 33,17.0040276 L33,21.0072497 L35,21.0072497 L35,18.0048332 L38,18.0048332 L38,22.0080553 L40,22.0080553 Z M29,21.0072497 L29,18.0048332 L26,18.0048332 L26,22.0080553 L24,22.0080553 L24,17.0040276 C24,16.451583 24.447,16.0032221 25,16.0032221 L30,16.0032221 C30.553,16.0032221 31,16.451583 31,17.0040276 L31,21.0072497 L29,21.0072497 Z" id="Amazon-ElastiCache_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Elasticache
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="s3.S3"
+               data-tooltip="S3 (5 resources)" data-is-vpc="false"
+               transform="translate(616.0, 410)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Simple-Storage-Service_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Simple-Storage-Service_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Storage" fill="#7AA116">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <g id="Icon-Service/48/Amazon-Simple-Storage-Service_48" transform="translate(10.999800, 10.000200)" fill="#FFFFFF">
+            <path d="M36.759,23.948 L36.993,22.131 C39.166,23.385 39.842,24.121 40.037,24.424 C39.713,24.485 38.832,24.509 36.759,23.948 L36.759,23.948 Z M19.5,11 C9.125,11 2.382,8.488 2,6.696 L2,6.511 C2.349,5.392 8.14,2 19.5,2 C30.84,2 36.632,5.381 37,6.505 L37,6.616 C36.724,8.446 29.961,11 19.5,11 L19.5,11 Z M34.818,23.362 C30.053,21.797 23.912,18.979 21.594,17.888 C21.535,16.786 20.628,15.906 19.512,15.906 C18.358,15.906 17.418,16.845 17.418,18 C17.418,19.154 18.358,20.094 19.512,20.094 C19.969,20.094 20.389,19.942 20.733,19.693 C23.132,20.822 29.619,23.798 34.558,25.38 L32.837,38.724 C32.583,40.352 27.919,42 19.497,42 C11.072,42 6.405,40.352 6.155,38.751 L2.435,9.814 C5.945,11.915 12.749,13 19.5,13 C26.25,13 33.054,11.915 36.565,9.815 L34.818,23.362 Z M39,6.5 C39,3.431 30.661,0 19.5,0 C8.339,0 -3.55271368e-15,3.431 -3.55271368e-15,6.5 L-3.55271368e-15,7.043 L4.174,39.033 C4.875,43.516 15.123,44 19.497,44 C23.869,44 34.113,43.516 34.818,39.007 L36.501,25.947 C37.778,26.279 38.812,26.456 39.616,26.455 C40.606,26.455 41.273,26.203 41.697,25.697 C42.047,25.281 42.185,24.756 42.085,24.221 C41.857,23 40.403,21.712 37.37,20.044 L37.27,19.989 L39,7.044 L39,6.5 Z" id="Amazon-Simple-Storage-Service-Icon_48_Squid"></path>
+        </g>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    S3
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#3F8624" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">3</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="sqs.Sqs"
+               data-tooltip="Sqs (3 resources)" data-is-vpc="false"
+               transform="translate(564.0, 510)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Simple-Queue-Service_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Simple-Queue-Service_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Application-Integration" fill="#E7157B">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M23.8465384,35.5138695 L25.8460385,32.5644909 C26.0709823,32.2326117 26.071982,31.7999835 25.848038,31.4681044 L23.8485379,28.492057 L22.1829543,29.5835048 L23.1427143,31.0127583 L20.0164959,31.0127583 L20.0164959,32.9882295 L23.1517121,32.9882295 L22.1849538,34.4145197 L23.8465384,35.5138695 Z M41.8430392,35.511894 L43.8425394,32.5476994 C44.0664834,32.2158202 44.0664834,31.7841798 43.8425394,31.4523006 L41.8430392,28.4900815 L40.1794551,29.5854803 L41.1432142,31.013746 L38.011997,31.013746 L38.011997,32.9892172 L41.1422144,32.9892172 L40.1794551,34.4164952 L41.8430392,35.511894 Z M28.4943764,32.0004939 C28.4943764,33.4850605 28.2624344,34.895547 27.8265434,36.1539221 C29.1372157,35.7183307 30.575856,35.5000412 32.0154961,35.5000412 C33.4541365,35.5000412 34.8937766,35.7183307 36.2034491,36.1539221 C35.7685579,34.895547 35.5356161,33.4850605 35.5356161,32.0004939 C35.5356161,30.516915 35.7685579,29.1064285 36.2034491,27.8480533 C33.5831042,28.7202239 30.447888,28.7202239 27.8265434,27.8480533 C28.2624344,29.1064285 28.4943764,30.516915 28.4943764,32.0004939 L28.4943764,32.0004939 Z M24.3034241,39.6198864 C24.1084729,39.427278 24.0104974,39.1744176 24.0104974,38.9215573 C24.0104974,38.668697 24.1084729,38.4158367 24.3034241,38.2232282 C25.676081,36.8670672 26.4948763,34.5409499 26.4948763,32.0004939 C26.4948763,29.4610256 25.676081,27.1349082 24.3034241,25.7787472 C24.1084729,25.5861388 24.0104974,25.3332785 24.0104974,25.0804181 C24.0104974,24.8275578 24.1084729,24.5746975 24.3034241,24.3820891 C24.6943264,23.9958844 25.3261685,23.9958844 25.7170707,24.3820891 C28.6593352,27.288995 35.3706573,27.288995 38.3139215,24.3820891 C38.703824,23.9958844 39.3366658,23.9958844 39.7275681,24.3820891 C39.9225194,24.5746975 40.0204949,24.8275578 40.0204949,25.0804181 C40.0204949,25.3332785 39.9225194,25.5861388 39.7275681,25.7787472 C38.3549113,27.1349082 37.5351162,29.4610256 37.5351162,32.0004939 C37.5351162,34.5409499 38.3549113,36.8670672 39.7275681,38.2232282 C39.9225194,38.4158367 40.0204949,38.668697 40.0204949,38.9215573 C40.0204949,39.1744176 39.9225194,39.427278 39.7275681,39.6198864 C39.5316171,39.8134826 39.2766808,39.9092929 39.0207448,39.9092929 C38.7648088,39.9092929 38.5088728,39.8134826 38.3139215,39.6198864 C35.3706573,36.7129805 28.6593352,36.7129805 25.7170707,39.6198864 C25.3261685,40.006091 24.6943264,40.006091 24.3034241,39.6198864 L24.3034241,39.6198864 Z M51.2726818,30.2630669 C50.8017996,29.7968557 50.1749563,29.5410322 49.5091227,29.5410322 C48.8432892,29.5410322 48.2164459,29.7968557 47.7455636,30.2630669 C47.2746813,30.7282904 47.0147463,31.3466129 47.0147463,32.0044448 C47.0147463,32.6632645 47.2746813,33.281587 47.7455636,33.7468104 C48.7183204,34.7078772 50.299925,34.7078772 51.2726818,33.7468104 C52.2444389,32.7867314 52.2444389,31.2231459 51.2726818,30.2630669 L51.2726818,30.2630669 Z M52.6863284,35.1434686 C51.8105474,36.008725 50.6588353,36.4423409 49.5091227,36.4423409 C48.3594101,36.4423409 47.2076981,36.008725 46.331917,35.1434686 C45.4831292,34.3058688 45.0152462,33.1907153 45.0152462,32.0044448 C45.0152462,30.8191621 45.4831292,29.7040086 46.331917,28.865421 C47.1807048,28.0268335 48.3094226,27.565561 49.5091227,27.565561 C50.7088228,27.565561 51.8375406,28.0268335 52.6863284,28.8664088 C54.4378905,30.5959338 54.4378905,33.4129558 52.6863284,35.1434686 L52.6863284,35.1434686 Z M16.2544364,30.2798584 C15.7845539,29.8146349 15.1577106,29.5588114 14.491877,29.5588114 C13.8250437,29.5588114 13.1992002,29.8146349 12.7273182,30.2798584 C11.7555611,31.2409252 11.7555611,32.8035229 12.7273182,33.7645897 C13.6690827,34.6940489 15.3126718,34.6950366 16.2544364,33.7645897 C17.2261935,32.8035229 17.2261935,31.2409252 16.2544364,30.2798584 L16.2544364,30.2798584 Z M17.668083,35.1612478 C16.8202949,35.9998354 15.6915771,36.4611079 14.491877,36.4611079 C13.2901775,36.4611079 12.1624594,35.9998354 11.3136716,35.1612478 C9.56210947,33.430735 9.56210947,30.6147008 11.3136716,28.8832003 C12.1624594,28.0446127 13.2901775,27.5833402 14.491877,27.5833402 C15.6915771,27.5833402 16.8202949,28.0446127 17.668083,28.8832003 C19.4196451,30.6147008 19.4196451,33.430735 17.668083,35.1612478 L17.668083,35.1612478 Z M43.4306423,43.3357478 C37.1022244,49.589102 26.8037991,49.589102 20.4753812,43.3357478 C18.8407898,41.7217878 17.824044,40.0614042 16.9622594,37.603918 L15.0727318,38.2508848 C16.0404899,41.0125936 17.1972007,42.8912668 19.0617346,44.732406 C22.615846,48.2447938 27.2836791,50 31.9525119,50 C36.6213447,50 41.2901775,48.2447938 44.8442889,44.732406 C46.8327918,42.7677998 48.0634841,40.8278871 48.9552612,38.2469339 L47.0637341,37.607869 C46.275931,39.8855873 45.1902024,41.5983208 43.4306423,43.3357478 L43.4306423,43.3357478 Z M16.9612597,26.3990452 L15.0737316,25.7501029 C16.0334916,23.0219771 17.2271932,21.0830521 19.0667333,19.2656186 C26.171957,12.2447938 37.7340665,12.2447938 44.8392902,19.2656186 C46.7818045,21.1847889 48.0504874,23.1849535 48.9532617,25.7501029 L47.0657336,26.3990452 C46.255936,24.0986089 45.1672082,22.3829122 43.4256436,20.6622767 C37.0992252,14.4128735 26.8067983,14.4128735 20.4803799,20.6622767 C18.8467883,22.2762367 17.8270432,23.9385958 16.9612597,26.3990452 L16.9612597,26.3990452 Z" id="AWS-Simple-Queue-Service_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Sqs
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#E7157B" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">3</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="sns.Sns"
+               data-tooltip="Sns (3 resources)" data-is-vpc="false"
+               transform="translate(694.0, 510)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Simple-Notification-Service_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Simple-Notification-Service_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Application-Integration" fill="#E7157B">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M14,31 C14.552,31 15,31.449 15,32 C15,32.551 14.552,33 14,33 C13.448,33 13,32.551 13,32 C13,31.449 13.448,31 14,31 L14,31 Z M33.396,51 C24.508,51 16.822,44.081 15.152,34.768 C15.93,34.443 16.531,33.797 16.815,33 L22,33 L22,31 L16.815,31 C16.532,30.204 15.932,29.558 15.155,29.232 C16.776,20.49 24.451,14 33.396,14 C37.587,14 40.588,14.844 43.429,16.821 L44.571,15.179 C41.411,12.98 37.965,12 33.396,12 C23.394,12 14.826,19.322 13.141,29.14 C11.907,29.512 11,30.646 11,32 C11,33.353 11.906,34.486 13.139,34.859 C14.88,45.248 23.456,53 33.396,53 C37.628,53 41.729,51.591 45.585,48.811 L44.415,47.189 C40.907,49.718 37.199,51 33.396,51 L33.396,51 Z M25.062,29.459 C26.457,29.837 28.091,30 29.434,30 C30.716,30 32.26,29.855 33.618,29.526 L30.105,36.553 C30.036,36.691 30,36.845 30,37 L30,40.501 C29.875,40.602 29.741,40.714 29.601,40.832 C29.207,41.162 28.432,41.813 28,41.974 L28,37 C28,36.873 27.976,36.747 27.929,36.628 L25.062,29.459 Z M29.434,26 C32.033,26 34.015,26.566 34.769,27 C34.015,27.434 32.033,28 29.434,28 C26.739,28 24.901,27.399 24.218,27 C24.901,26.601 26.739,26 29.434,26 L29.434,26 Z M27,44 L28,44 C28.043,44 28.086,43.997 28.128,43.992 C29.094,43.867 30.046,43.068 30.886,42.364 C31.145,42.147 31.372,41.952 31.546,41.838 C31.829,41.653 32,41.338 32,41 L32,37.236 L36.592,28.053 C36.85,27.745 37,27.396 37,27 C37,24.799 32.475,24 29.434,24 C26.445,24 22,24.799 22,27 C22,27.317 22.101,27.601 22.268,27.862 L26,37.192 L26,43 C26,43.552 26.447,44 27,44 L27,44 Z M49,43 C49.552,43 50,43.449 50,44 C50,44.551 49.552,45 49,45 C48.448,45 48,44.551 48,44 C48,43.449 48.448,43 49,43 L49,43 Z M49,19 C49.552,19 50,19.449 50,20 C50,20.551 49.552,21 49,21 C48.448,21 48,20.551 48,20 C48,19.449 48.448,19 49,19 L49,19 Z M51,31 C51.552,31 52,31.449 52,32 C52,32.551 51.552,33 51,33 C50.448,33 50,32.551 50,32 C50,31.449 50.448,31 51,31 L51,31 Z M44,33 L48.185,33 C48.599,34.162 49.698,35 51,35 C52.654,35 54,33.654 54,32 C54,30.346 52.654,29 51,29 C49.698,29 48.599,29.838 48.185,31 L44,31 L44,21 L46.185,21 C46.599,22.162 47.698,23 49,23 C50.654,23 52,21.654 52,20 C52,18.346 50.654,17 49,17 C47.698,17 46.599,17.838 46.185,19 L43,19 C42.447,19 42,19.448 42,20 L42,31 L37,31 L37,33 L42,33 L42,44 C42,44.552 42.447,45 43,45 L46.185,45 C46.599,46.162 47.698,47 49,47 C50.654,47 52,45.654 52,44 C52,42.346 50.654,41 49,41 C47.698,41 46.599,41.838 46.185,43 L44,43 L44,33 Z" id="AWS-Simple-Notification-Service_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Sns
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#E7157B" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">2</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="eventbridge.Eventbridge"
+               data-tooltip="Eventbridge (2 resources)" data-is-vpc="false"
+               transform="translate(824.0, 510)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-EventBridge_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-EventBridge_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Application-Integration" fill="#E7157B">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M43.2617752,52 C41.6961147,52 40.4226302,50.736 40.4226302,49.182 C40.4226302,47.628 41.6961147,46.364 43.2617752,46.364 C44.8274357,46.364 46.1009202,47.628 46.1009202,49.182 C46.1009202,50.736 44.8274357,52 43.2617752,52 L43.2617752,52 Z M36.5437415,39 L28.4000902,39 L24.3277608,32 L28.4000902,25 L36.5437415,25 L40.6160709,32 L36.5437415,39 Z M22.7459802,17.636 C21.1803197,17.636 19.9058277,16.372 19.9058277,14.818 C19.9058277,13.264 21.1803197,12 22.7459802,12 C24.3106333,12 25.5851253,13.264 25.5851253,14.818 C25.5851253,16.372 24.3106333,17.636 22.7459802,17.636 L22.7459802,17.636 Z M43.2617752,44.364 C42.7197383,44.364 42.206919,44.473 41.7192872,44.636 L38.6161763,39.438 L42.6522355,32.5 C42.8315712,32.19 42.8315712,31.81 42.6522355,31.5 L37.9975691,23.5 C37.8182335,23.19 37.4857573,23 37.125071,23 L28.8010766,23 L26.0243968,18.349 C26.9865627,17.468 27.6001324,16.217 27.6001324,14.818 C27.6001324,12.162 25.4229172,10 22.7459802,10 C20.0680358,10 17.8908206,12.162 17.8908206,14.818 C17.8908206,17.475 20.0680358,19.636 22.7459802,19.636 C23.2880172,19.636 23.8008365,19.527 24.2884682,19.364 L26.8535722,23.659 L22.2926036,31.5 C22.1122605,31.81 22.1122605,32.19 22.2926036,32.5 L26.9462626,40.5 C27.1255982,40.81 27.4580744,41 27.8187607,41 L37.125071,41 C37.1512661,41 37.1754462,40.992 37.1996263,40.99 L39.9833586,45.651 C39.0211927,46.532 38.4076231,47.783 38.4076231,49.182 C38.4076231,51.838 40.5848382,54 43.2617752,54 C45.9387122,54 48.1159273,51.838 48.1159273,49.182 C48.1159273,46.525 45.9387122,44.364 43.2617752,44.364 L43.2617752,44.364 Z M47.9335692,25.636 C46.3679087,25.636 45.0934167,24.372 45.0934167,22.818 C45.0934167,21.264 46.3679087,20 47.9335692,20 C49.4982222,20 50.7727142,21.264 50.7727142,22.818 C50.7727142,24.372 49.4982222,25.636 47.9335692,25.636 L47.9335692,25.636 Z M50.9792525,26.539 C52.0734013,25.655 52.7877213,24.325 52.7877213,22.818 C52.7877213,20.162 50.6105062,18 47.9335692,18 C47.2958194,18 46.6903098,18.13 46.1331603,18.353 L43.4048407,14.432 C43.21543,14.162 42.9051189,14 42.5746578,14 L33.5071257,14 L33.5071257,16 L42.0467259,16 L44.4576819,19.466 C43.6083564,20.334 43.0784096,21.515 43.0784096,22.818 C43.0784096,25.475 45.2556247,27.636 47.9335692,27.636 C48.3678032,27.636 48.7818872,27.561 49.1838811,27.454 L51.8295855,32 L47.9809219,38.616 L49.725918,39.616 L53.8647426,32.5 C54.0450858,32.19 54.0450858,31.81 53.8647426,31.5 L50.9792525,26.539 Z M17.7084624,43.636 C16.1428019,43.636 14.8683099,42.372 14.8683099,40.818 C14.8683099,39.264 16.1428019,38 17.7084624,38 C19.2731155,38 20.5476075,39.264 20.5476075,40.818 C20.5476075,42.372 19.2731155,43.636 17.7084624,43.636 L17.7084624,43.636 Z M20.6221627,44.647 C21.7928819,43.767 22.5626146,42.386 22.5626146,40.818 C22.5626146,38.162 20.3853994,36 17.7084624,36 C17.00724,36 16.3443026,36.155 15.742823,36.421 L13.1706664,32 L17.6429747,24.311 L15.8979785,23.311 L11.1345017,31.5 C10.9551661,31.81 10.9551661,32.19 11.1345017,32.5 L14.1086522,37.614 C13.337912,38.468 12.8533028,39.583 12.8533028,40.818 C12.8533028,43.475 15.030518,45.636 17.7084624,45.636 C18.0762012,45.636 18.4308425,45.588 18.7744012,45.511 L21.5954112,49.568 C21.7838143,49.838 22.0931179,50 22.4245866,50 L31.4921186,50 L31.4921186,48 L22.9545335,48 L20.6221627,44.647 Z" id="AWS-EventBridge_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Eventbridge
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="kms.Kms"
+               data-tooltip="Kms (2 resources)" data-is-vpc="false"
+               transform="translate(356.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-Key-Management-Service_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-Key-Management-Service_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M42.8407901,41.9967832 L48.8407901,41.9967832 L48.8407901,39.9967832 L42.8407901,39.9967832 L42.8407901,41.9967832 Z M34.8407901,41.9967832 L40.8407901,41.9967832 L40.8407901,39.9967832 L34.8407901,39.9967832 L34.8407901,41.9967832 Z M26.8407901,41.9967832 L32.8407901,41.9967832 L32.8407901,39.9967832 L26.8407901,39.9967832 L26.8407901,41.9967832 Z M36.8407901,35.4967832 C36.8407901,34.6697832 37.5137901,33.9967832 38.3407901,33.9967832 C39.1687901,33.9967832 39.8407901,34.6697832 39.8407901,35.4967832 C39.8407901,36.3237832 39.1687901,36.9967832 38.3407901,36.9967832 C37.5137901,36.9967832 36.8407901,36.3237832 36.8407901,35.4967832 L36.8407901,35.4967832 Z M41.8407901,35.4967832 C41.8407901,33.5667832 40.2707901,31.9967832 38.3407901,31.9967832 C36.4117901,31.9967832 34.8407901,33.5667832 34.8407901,35.4967832 C34.8407901,37.4267832 36.4117901,38.9967832 38.3407901,38.9967832 C40.2707901,38.9967832 41.8407901,37.4267832 41.8407901,35.4967832 L41.8407901,35.4967832 Z M30.3407901,36.9967832 C29.5137901,36.9967832 28.8407901,36.3237832 28.8407901,35.4967832 C28.8407901,34.6697832 29.5137901,33.9967832 30.3407901,33.9967832 C31.1687901,33.9967832 31.8407901,34.6697832 31.8407901,35.4967832 C31.8407901,36.3237832 31.1687901,36.9967832 30.3407901,36.9967832 L30.3407901,36.9967832 Z M30.3407901,31.9967832 C28.4117901,31.9967832 26.8407901,33.5667832 26.8407901,35.4967832 C26.8407901,37.4267832 28.4117901,38.9967832 30.3407901,38.9967832 C32.2707901,38.9967832 33.8407901,37.4267832 33.8407901,35.4967832 C33.8407901,33.5667832 32.2707901,31.9967832 30.3407901,31.9967832 L30.3407901,31.9967832 Z M53.8407901,25.9967832 L53.8407901,45.9967832 C53.8407901,46.5487832 53.3937901,46.9967832 52.8407901,46.9967832 L26.8407901,46.9967832 L26.8407901,44.9967832 L51.8407901,44.9967832 L51.8407901,26.9967832 L32.8407901,26.9967832 L32.8407901,24.9967832 L52.8407901,24.9967832 C53.3937901,24.9967832 53.8407901,25.4447832 53.8407901,25.9967832 L53.8407901,25.9967832 Z M20.9037901,23.8917832 C19.8127901,23.8917832 18.9247901,23.0037832 18.9247901,21.9127832 C18.9247901,20.8217832 19.8127901,19.9337832 20.9037901,19.9337832 C21.9947901,19.9337832 22.8817901,20.8217832 22.8817901,21.9127832 C22.8817901,23.0037832 21.9947901,23.8917832 20.9037901,23.8917832 L20.9037901,23.8917832 Z M20.9037901,17.9337832 C18.7107901,17.9337832 16.9247901,19.7187832 16.9247901,21.9127832 C16.9247901,24.1067832 18.7107901,25.8917832 20.9037901,25.8917832 C23.0967901,25.8917832 24.8817901,24.1067832 24.8817901,21.9127832 C24.8817901,19.7187832 23.0967901,17.9337832 20.9037901,17.9337832 L20.9037901,17.9337832 Z M23.5337901,30.0457832 C23.1207901,30.1787832 22.8407901,30.5627832 22.8407901,30.9967832 L22.8407901,49.5767832 L20.9017901,51.4757832 L18.8407901,48.6687832 L18.8407901,46.0387832 C18.8407901,45.7467832 18.7127901,45.4677832 18.4897901,45.2777832 L16.3837901,43.4857832 L18.4897901,41.6947832 C18.7127901,41.5047832 18.8407901,41.2257832 18.8407901,40.9327832 L18.8407901,39.2307832 C18.8407901,38.9377832 18.7127901,38.6587832 18.4897901,38.4687832 L16.3837901,36.6777832 L18.4897901,34.8857832 C18.7127901,34.6957832 18.8407901,34.4167832 18.8407901,34.1237832 L18.8407901,30.9967832 C18.8407901,30.5607832 18.5587901,30.1747832 18.1427901,30.0437832 C13.7627901,28.6557832 11.2567901,24.3907832 12.1847901,19.9017832 C12.8557901,16.6557832 15.3507901,14.0537832 18.5437901,13.2707832 C21.2617901,12.6027832 24.0527901,13.1857832 26.1957901,14.8667832 C28.3377901,16.5457832 29.5647901,19.0677832 29.5647901,21.7837832 C29.5647901,25.5577832 27.1407901,28.8777832 23.5337901,30.0457832 L23.5337901,30.0457832 Z M31.5647901,21.7837832 C31.5647901,18.4497832 30.0577901,15.3537832 27.4297901,13.2927832 C24.8017901,11.2307832 21.3907901,10.5137832 18.0667901,11.3287832 C14.1297901,12.2937832 11.0517901,15.4997832 10.2257901,19.4967832 C9.15579012,24.6777832 11.9757901,29.7947832 16.8407901,31.7027832 L16.8407901,33.6627832 L14.1927901,35.9157832 C13.9697901,36.1057832 13.8407901,36.3847832 13.8407901,36.6777832 C13.8407901,36.9707832 13.9697901,37.2487832 14.1927901,37.4387832 L16.8407901,39.6927832 L16.8407901,40.4707832 L14.1927901,42.7247832 C13.9697901,42.9137832 13.8407901,43.1927832 13.8407901,43.4857832 C13.8407901,43.7787832 13.9697901,44.0577832 14.1927901,44.2477832 L16.8407901,46.5007832 L16.8407901,48.9967832 C16.8407901,49.2097832 16.9097901,49.4167832 17.0357901,49.5887832 L19.9717901,53.5887832 C20.1427901,53.8217832 20.4077901,53.9697832 20.6967901,53.9937832 C20.7237901,53.9957832 20.7507901,53.9967832 20.7777901,53.9967832 C21.0387901,53.9967832 21.2897901,53.8947832 21.4767901,53.7107832 L24.5407901,50.7107832 C24.7327901,50.5227832 24.8407901,50.2657832 24.8407901,49.9967832 L24.8407901,31.6977832 C28.8917901,30.0787832 31.5647901,26.1817832 31.5647901,21.7837832 L31.5647901,21.7837832 Z" id="AWS-Key-Management-Service_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Kms
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="secrets_manager.Secrets Manager"
+               data-tooltip="Secrets Manager (3 resources)" data-is-vpc="false"
+               transform="translate(1006.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-Secrets-Manager_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-Secrets-Manager_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M31.24,34.64 C31.24,35.059 31.581,35.4 32,35.4 C32.419,35.4 32.76,35.059 32.76,34.64 C32.76,34.221 32.419,33.88 32,33.88 C31.581,33.88 31.24,34.221 31.24,34.64 L31.24,34.64 Z M29.24,34.64 C29.24,33.118 30.478,31.88 32,31.88 C33.521,31.88 34.76,33.118 34.76,34.64 C34.76,35.808 34.027,36.804 33,37.205 L33,40 L31,40 L31,37.205 C29.972,36.803 29.24,35.808 29.24,34.64 L29.24,34.64 Z M39,31 L25,31 L25,41 L39,41 L39,39 L37,39 L37,37 L39,37 L39,35 L37,35 L37,33 L39,33 L39,31 Z M27,29 L36.999,29 L37,25 C37,24.135 36.424,23.141 35.457,22.341 C34.443,21.501 33.152,21 32.003,21 L32.001,21 C29.618,21 27.001,23.093 27,25 L27,29 Z M39,25 L38.999,29 L40,29 C40.553,29 41,29.448 41,30 L41,42 C41,42.552 40.553,43 40,43 L24,43 C23.447,43 23,42.552 23,42 L23,30 C23,29.448 23.447,29 24,29 L25,29 L25,25 C25.001,21.971 28.469,19 32.001,19 L32.003,19 C33.628,19 35.351,19.657 36.732,20.801 C38.174,21.994 39.001,23.525 39,25 L39,25 Z M15.489,43.95 L17.11,42.777 C15.029,39.902 13.859,36.538 13.676,33 L16,33 L16,31 L13.678,31 C13.871,27.483 15.04,24.14 17.11,21.281 L15.489,20.108 C13.172,23.311 11.873,27.058 11.678,31 L10,31 L10,33 L11.676,33 C11.861,36.962 13.16,40.731 15.489,43.95 L15.489,43.95 Z M42.747,46.918 C39.88,48.993 36.527,50.162 33,50.35 L33,48 L31,48 L31,50.35 C27.471,50.162 24.118,48.994 21.25,46.918 L20.078,48.538 C23.289,50.862 27.049,52.161 31,52.35 L31,54 L33,54 L33,52.35 C36.951,52.16 40.709,50.862 43.919,48.538 L42.747,46.918 Z M21.25,17.14 C24.118,15.064 27.471,13.895 31,13.707 L31,16 L33,16 L33,13.707 C36.527,13.896 39.88,15.065 42.747,17.14 L43.919,15.52 C40.709,13.196 36.951,11.897 33,11.707 L33,10 L31,10 L31,11.707 C27.048,11.897 23.289,13.196 20.078,15.52 L21.25,17.14 Z M52.319,31 C52.125,27.058 50.826,23.311 48.509,20.108 L46.887,21.281 C48.958,24.14 50.127,27.483 50.319,31 L48,31 L48,33 L50.322,33 C50.138,36.538 48.969,39.902 46.887,42.777 L48.509,43.95 C50.838,40.731 52.136,36.962 52.322,33 L54,33 L54,31 L52.319,31 Z M45.026,20.416 L51.185,14.256 L49.771,12.842 L43.612,19.002 L45.026,20.416 Z M18.971,43.642 L12.811,49.802 L14.225,51.216 L20.386,45.056 L18.971,43.642 Z M23.246,21.833 L11.586,10.173 L10.172,11.587 L21.832,23.247 L23.246,21.833 Z M43.303,41.89 L53.826,52.413 L52.412,53.827 L41.888,43.304 L43.303,41.89 Z" id="AWS-Secrets-Manager_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Secrets Manager
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#DD344C" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">2</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="iam.Iam"
+               data-tooltip="Iam (4 resources)" data-is-vpc="false"
+               transform="translate(486.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-Identity-and-Access-Management_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-Identity-and-Access-Management_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M12,47 L52,47 L52,18 L12,18 L12,47 Z M54,17 L54,48 C54,48.552 53.553,49 53,49 L11,49 C10.447,49 10,48.552 10,48 L10,17 C10,16.448 10.447,16 11,16 L53,16 C53.553,16 54,16.448 54,17 L54,17 Z M35,39 L47,39 L47,37 L35,37 L35,39 Z M45,35 L49,35 L49,33 L45,33 L45,35 Z M35,35 L41,35 L41,33 L35,33 L35,35 Z M22.5,37.5 C22.5,37.776 22.725,38 23,38 C23.275,38 23.5,37.776 23.5,37.5 C23.5,37.224 23.275,37 23,37 C22.725,37 22.5,37.224 22.5,37.5 L22.5,37.5 Z M25.5,37.5 C25.5,38.522 24.882,39.401 24,39.788 L24,42 L22,42 L22,39.788 C21.118,39.401 20.5,38.522 20.5,37.5 C20.5,36.122 21.621,35 23,35 C24.379,35 25.5,36.122 25.5,37.5 L25.5,37.5 Z M16,42.995 L29.995,43 L29.996,41 L27,41 L27,39 L29.997,39 L29.998,37 L27,37 L27,35 L29.999,35 L30,33.005 L16.005,33 L16,42.995 Z M18,31.001 L28.001,31.004 L28.002,26 C28.002,24.976 27.2,24.273 26.722,23.945 C25.847,23.345 24.174,23 23.002,23 L23,23 C20.873,23 18.003,24.232 18.002,26 L18,31.001 Z M14.293,44.701 C14.105,44.513 14,44.259 14,43.994 L14.005,32 C14.005,31.447 14.453,31 15.005,31 L16,31 L16.002,26 C16.003,22.911 19.876,21 23,21 L23.002,21 C24.567,21 26.653,21.473 27.854,22.295 C29.239,23.246 30.003,24.562 30.002,26 L30.001,31.005 L31,31.006 C31.266,31.006 31.52,31.111 31.707,31.299 C31.895,31.487 32,31.741 32,32.006 L31.995,44 C31.995,44.553 31.547,45 30.995,45 L15,44.994 C14.734,44.994 14.48,44.889 14.293,44.701 L14.293,44.701 Z M47,30 L49,30 L49,28 L47,28 L47,30 Z M35,30 L44,30 L44,28 L35,28 L35,30 Z" id="AWS-Identity-and-Access-Management_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Iam
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#DD344C" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">2</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="route53.Route53"
+               data-tooltip="Route53 (2 resources)" data-is-vpc="false"
+               transform="translate(460.0, 70)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Route-53_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Route-53_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Networking-Content-Delivery" fill="#8C4FFF">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M38.761,32.5265073 C39.336,33.0577669 39.623,33.7701149 39.623,34.6635515 C39.623,35.6370272 39.274,36.4134066 38.574,36.9936901 C37.875,37.5749741 36.935,37.8651159 35.754,37.8651159 C34.822,37.8651159 33.899,37.6660186 32.986,37.269825 L32.986,36.0782428 C34.067,36.4354173 34.99,36.6135043 35.754,36.6135043 C36.508,36.6135043 37.088,36.4454222 37.495,36.1082574 C37.903,35.7710927 38.106,35.2888571 38.106,34.6635515 C38.106,33.4629649 37.347,32.861671 35.828,32.861671 C35.352,32.861671 34.881,32.8866833 34.414,32.9357072 L34.414,31.9532271 L37.54,28.5435611 L33.134,28.5435611 L33.134,27.3219641 L39.193,27.3219641 L39.193,28.4985391 L36.126,31.7451255 C36.176,31.7351206 36.225,31.7301181 36.275,31.7301181 L36.424,31.7301181 C37.407,31.7301181 38.185,31.9962482 38.761,32.5265073 M30.114,32.2663802 C30.718,32.8326569 31.021,33.6110372 31.021,34.6035222 C31.021,35.5769979 30.668,36.3633821 29.964,36.9646759 C29.259,37.5649692 28.331,37.8651159 27.181,37.8651159 C26.169,37.8651159 25.221,37.6660186 24.338,37.269825 L24.338,36.0782428 C25.44,36.4354173 26.382,36.6135043 27.166,36.6135043 C27.92,36.6135043 28.498,36.4434212 28.9,36.101254 C29.302,35.7580863 29.502,35.2648453 29.502,34.6185295 C29.502,33.9141853 29.315,33.4029355 28.937,33.0847801 C28.56,32.7676251 27.945,32.6085474 27.091,32.6085474 C26.476,32.6085474 25.707,32.6585718 24.784,32.7576202 L24.784,31.7751401 L25.068,27.3219641 L30.5,27.3219641 L30.5,28.5435611 L26.318,28.5435611 L26.123,31.5670384 C26.669,31.4669896 27.16,31.4169651 27.597,31.4169651 C28.669,31.4169651 29.508,31.7001035 30.114,32.2663802 M41.261,42.9636072 C37.516,43.6359357 34.233,45.1456735 32,46.3952841 C29.768,45.1456735 26.485,43.6359357 22.74,42.9636072 C21.708,42.7785168 16.566,41.7079937 16.566,38.8245847 C16.566,37.4629194 17.063,36.5424696 18.017,34.8996669 C19.133,32.9737258 20.663,30.3364371 20.663,26.6736474 C20.663,24.1103949 20.004,21.6511932 18.703,19.3530703 C18.792,19.244017 18.882,19.1329627 18.972,19.0229089 C20.927,19.9723729 22.959,20.4526075 25.025,20.4526075 C27.571,20.4526075 29.914,19.7962868 32,18.5016542 C34.086,19.7962868 36.43,20.4526075 38.976,20.4526075 C41.041,20.4526075 43.073,19.9723729 45.029,19.0229089 C45.118,19.1329627 45.208,19.244017 45.297,19.3530703 C43.996,21.6511932 43.337,24.1103949 43.337,26.6736474 C43.337,30.3364371 44.867,32.9737258 45.984,34.8996669 C46.938,36.5424696 47.435,37.4629194 47.435,38.8245847 C47.435,41.7079937 42.292,42.7785168 41.261,42.9636072 M45.337,26.6736474 C45.337,24.2594677 46.019,21.9443364 47.362,19.7922849 C47.589,19.4291074 47.559,18.9608786 47.288,18.6297168 C46.893,18.1454802 46.479,17.6362313 46.07,17.129984 C45.766,16.7527997 45.234,16.6497493 44.809,16.8838637 C42.926,17.9243721 40.963,18.4516298 38.976,18.4516298 C36.576,18.4516298 34.482,17.8083154 32.57,16.4826677 C32.228,16.2445513 31.773,16.2445513 31.431,16.4826677 C29.519,17.8083154 27.424,18.4516298 25.025,18.4516298 C23.037,18.4516298 21.074,17.9243721 19.192,16.8838637 C18.766,16.6497493 18.236,16.7527997 17.931,17.129984 C17.522,17.6362313 17.108,18.1454802 16.712,18.6297168 C16.442,18.9608786 16.411,19.4291074 16.639,19.7922849 C17.982,21.9443364 18.663,24.2594677 18.663,26.6736474 C18.663,29.7981741 17.401,31.9742374 16.286,33.8951761 C15.22,35.7340746 14.566,36.9556715 14.566,38.8245847 C14.566,43.1877167 20.551,44.6034085 22.386,44.9325693 C26.136,45.6068988 29.41,47.1976761 31.497,48.4122696 C31.653,48.5023136 31.826,48.5483361 32,48.5483361 C32.174,48.5483361 32.348,48.5023136 32.503,48.4122696 C34.59,47.1976761 37.865,45.6068988 41.615,44.9325693 C43.449,44.6034085 49.435,43.1877167 49.435,38.8245847 C49.435,36.9556715 48.781,35.7340746 47.714,33.8951761 C46.6,31.9742374 45.337,29.7981741 45.337,26.6736474 M42.068,47.4588037 C37.402,48.2972134 33.468,50.7554146 32,51.7679093 C30.532,50.7554146 26.599,48.2972134 21.933,47.4588037 C19.603,47.0395989 12,45.1786896 12,38.8245847 C12,36.1702878 13.004,34.4384415 14.068,32.6055459 C15.066,30.8857055 16.098,29.1068363 16.098,26.6736474 C16.098,23.0068556 14.071,20.3715679 12.941,19.1869891 C14.095,17.7823027 16.636,14.6807872 18.029,12.8969155 C20.151,14.831861 22.6,15.8853758 25.025,15.8853758 C27.726,15.8853758 29.967,14.8198552 32,12.5487454 C34.033,14.8198552 36.275,15.8853758 38.976,15.8853758 C41.401,15.8853758 43.85,14.831861 45.972,12.8969155 C47.365,14.6807872 49.906,17.7823027 51.06,19.1869891 C49.93,20.3715679 47.903,23.0068556 47.903,26.6736474 C47.903,29.1068363 48.935,30.8857055 49.933,32.6055459 C50.996,34.4384415 52,36.1702878 52,38.8245847 C52,45.1786896 44.398,47.0395989 42.068,47.4588037 M51.662,31.6010551 C50.718,29.9742601 49.903,28.5675728 49.903,26.6736474 C49.903,22.6716918 53.024,20.0714213 53.053,20.0474095 C53.26,19.8793274 53.392,19.6362086 53.419,19.3700786 C53.446,19.1039485 53.365,18.838819 53.196,18.6327183 C53.144,18.5706879 48.049,12.3936696 46.885,10.7978899 C46.709,10.5567721 46.436,10.4066987 46.138,10.3886899 C45.845,10.3696806 45.55,10.4867378 45.347,10.7038439 C43.43,12.7548461 41.167,13.8843981 38.976,13.8843981 C36.56,13.8843981 34.654,12.8008686 32.794,10.3706811 C32.415,9.87643962 31.585,9.87643962 31.206,10.3706811 C29.347,12.8008686 27.441,13.8843981 25.025,13.8843981 C22.833,13.8843981 20.571,12.7548461 18.654,10.7038439 C18.45,10.4857373 18.154,10.3646782 17.863,10.3886899 C17.565,10.4066987 17.291,10.5567721 17.115,10.7978899 C15.951,12.3936696 10.857,18.5706879 10.805,18.6327183 C10.635,18.838819 10.555,19.1039485 10.581,19.3700786 C10.609,19.6362086 10.74,19.8793274 10.948,20.0474095 C10.98,20.0734222 14.098,22.6416772 14.098,26.6736474 C14.098,28.5675728 13.282,29.9742601 12.338,31.6010551 C11.242,33.4899781 10,35.6310243 10,38.8245847 C10,44.1611924 14.328,48.1251293 21.579,49.4287663 C26.895,50.3832327 31.347,53.7598827 31.392,53.7938993 C31.572,53.9319668 31.785,54 32,54 C32.215,54 32.43,53.9309663 32.61,53.7928988 C32.654,53.7588822 37.088,50.3872347 42.421,49.4287663 C49.672,48.1251293 54,44.1611924 54,38.8245847 C54,35.6310243 52.758,33.4899781 51.662,31.6010551" id="Amazon-Route-53-Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Route53
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="acm.Acm"
+               data-tooltip="Acm (1 resources)" data-is-vpc="false"
+               transform="translate(590.0, 70)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-Certificate-Manager_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-Certificate-Manager_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M28.722,30.981 C28.946,31.214 29.042,31.541 28.983,31.858 L28.394,34.998 L31.486,33.143 C31.644,33.047 31.823,33 32,33 C32.178,33 32.357,33.047 32.515,33.143 L35.608,34.998 L35.018,31.852 C34.958,31.535 35.055,31.209 35.279,30.976 L37.94,28.197 L34.355,27.665 C34.041,27.618 33.769,27.426 33.619,27.147 L31.992,24.104 L30.325,27.158 C30.175,27.432 29.906,27.621 29.596,27.668 L26.057,28.204 L28.722,30.981 Z M26.018,36.815 L26.922,31.995 L23.279,28.197 C23.02,27.927 22.933,27.536 23.054,27.183 C23.174,26.829 23.481,26.572 23.851,26.516 L28.806,25.764 L31.122,21.521 C31.298,21.2 31.635,21 32,21 L32.004,21 C32.371,21.002 32.708,21.205 32.882,21.528 L35.146,25.76 L40.147,26.503 C40.517,26.558 40.826,26.814 40.947,27.168 C41.068,27.523 40.981,27.914 40.722,28.184 L37.077,31.988 L37.983,36.816 C38.056,37.203 37.895,37.596 37.572,37.821 C37.249,38.045 36.825,38.06 36.486,37.857 L32,35.166 L27.515,37.857 C27.356,37.953 27.178,38 27,38 C26.8,38 26.6,37.94 26.429,37.821 C26.106,37.596 25.945,37.203 26.018,36.815 L26.018,36.815 Z M12,17.017 L51.997,17.017 L51.997,13 L12,13 L12,17.017 Z M54,52 C54,52.265 53.895,52.52 53.707,52.707 C53.52,52.895 53.266,53 53,53 L48,53 L48,51 L52,51 L51.998,19.017 L12,19.017 L12,51 L41,51 L41,53 L11,53 C10.448,53 10,52.552 10,52 L10,12 C10,11.448 10.448,11 11,11 L52.997,11 C53.55,11 53.997,11.448 53.997,12 L54,52 Z M19,47 L24,47 L24,45 L19,45 L19,47 Z M27,47 L38,47 L38,45 L27,45 L27,47 Z M19,42.997 L24,42.997 L24,40.997 L19,40.997 L19,42.997 Z M27,43 L45,43 L45,41 L27,41 L27,43 Z" id="AWS-Certificate-Manager_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Acm
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="cloudfront.Cloudfront"
+               data-tooltip="Cloudfront (2 resources)" data-is-vpc="false"
+               transform="translate(720.0, 70)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-CloudFront_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-CloudFront_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Networking-Content-Delivery" fill="#8C4FFF">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M41.5,43.5 C40.397,43.5 39.5,42.603 39.5,41.5 C39.5,40.397 40.397,39.5 41.5,39.5 C42.603,39.5 43.5,40.397 43.5,41.5 C43.5,42.603 42.603,43.5 41.5,43.5 L41.5,43.5 Z M41.5,37.5 C39.294,37.5 37.5,39.294 37.5,41.5 C37.5,43.706 39.294,45.5 41.5,45.5 C43.706,45.5 45.5,43.706 45.5,41.5 C45.5,39.294 43.706,37.5 41.5,37.5 L41.5,37.5 Z M22.5,32.5 C21.397,32.5 20.5,31.603 20.5,30.5 C20.5,29.397 21.397,28.5 22.5,28.5 C23.603,28.5 24.5,29.397 24.5,30.5 C24.5,31.603 23.603,32.5 22.5,32.5 L22.5,32.5 Z M22.5,26.5 C20.294,26.5 18.5,28.294 18.5,30.5 C18.5,32.706 20.294,34.5 22.5,34.5 C24.706,34.5 26.5,32.706 26.5,30.5 C26.5,28.294 24.706,26.5 22.5,26.5 L22.5,26.5 Z M45.389,47.124 C45.168,46.607 44.936,46.094 44.685,45.591 L42.896,46.486 C43.17,47.035 43.42,47.599 43.656,48.165 C42.82,48.762 41.943,49.288 41.028,49.74 C41.384,48.865 41.694,47.975 41.974,47.012 L40.054,46.454 C39.564,48.134 38.985,49.581 38.184,51.133 C36.357,51.698 34.452,52 32.5,52 C29.465,52 26.567,51.314 23.871,49.976 C22.503,46.615 21.838,43.534 21.838,40.559 C21.838,39.267 22.063,38.196 22.322,36.956 C22.386,36.652 22.45,36.343 22.514,36.024 L20.551,35.638 C20.49,35.949 20.427,36.25 20.365,36.545 C20.094,37.838 19.838,39.06 19.838,40.559 C19.838,43.074 20.274,45.644 21.154,48.354 C16.072,44.724 13,38.854 13,32.5 C13,32.389 13.01,32.273 13.012,32.161 C14.642,31.799 16.123,31.614 17.854,31.571 L17.804,29.572 C16.169,29.612 14.694,29.779 13.163,30.084 C14.081,22.683 19.212,16.394 26.323,14.019 C27.873,14.818 29.02,15.524 30.135,16.37 L31.344,14.776 C30.646,14.248 29.934,13.771 29.146,13.299 C30.244,13.108 31.363,13 32.5,13 C35.032,13 37.532,13.494 39.849,14.439 C39.342,14.593 38.82,14.763 38.243,14.971 L38.923,16.852 C40.316,16.349 41.408,16.04 42.571,15.821 C48.399,19.341 52,25.667 52,32.5 C52,38.156 49.605,43.416 45.389,47.124 L45.389,47.124 Z M43.008,13.749 C39.826,11.95 36.192,11 32.5,11 C30.392,11 28.324,11.301 26.357,11.895 C17.723,14.464 11.568,22.23 11.045,31.196 C11.01,31.625 11,32.062 11,32.5 C11,40.444 15.352,47.707 22.354,51.455 C25.459,53.12 28.968,54 32.5,54 C34.892,54 37.229,53.61 39.437,52.843 C41.684,52.086 43.773,50.963 45.646,49.507 C50.955,45.399 54,39.2 54,32.5 C54,24.732 49.787,17.546 43.008,13.749 L43.008,13.749 Z M38.384,37.411 L37.003,38.858 C34.022,36.015 31.047,34.146 27.637,32.975 L28.287,31.083 C31.979,32.351 35.188,34.362 38.384,37.411 L38.384,37.411 Z M38.444,22.364 C41.282,26.692 42.88,31.444 43.193,36.488 L41.197,36.612 C40.905,31.919 39.417,27.495 36.772,23.46 L38.444,22.364 Z M26.451,26.797 L24.773,25.708 C26.316,23.332 27.639,21.758 29.336,20.278 L30.65,21.786 C29.103,23.135 27.886,24.587 26.451,26.797 L26.451,26.797 Z M34.5,16.5 C35.603,16.5 36.5,17.397 36.5,18.5 C36.5,19.603 35.603,20.5 34.5,20.5 C33.397,20.5 32.5,19.603 32.5,18.5 C32.5,17.397 33.397,16.5 34.5,16.5 L34.5,16.5 Z M34.5,22.5 C36.706,22.5 38.5,20.706 38.5,18.5 C38.5,16.294 36.706,14.5 34.5,14.5 C32.294,14.5 30.5,16.294 30.5,18.5 C30.5,20.706 32.294,22.5 34.5,22.5 L34.5,22.5 Z" id="Amazon-CloudFront_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Cloudfront
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="waf.Waf"
+               data-tooltip="Waf (1 resources)" data-is-vpc="false"
+               transform="translate(850.0, 70)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_AWS-WAF_48</title>
+    <g id="Icon-Architecture/48/Arch_AWS-WAF_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <g id="Icon-Service/48/AWS-WAF_48" transform="translate(9.999700, 10.000000)" fill="#FFFFFF">
+            <path d="M16.929,30.397 C17.816,31.015 18.833,31.581 19.969,32.089 C19.492,29.713 19.175,25.602 21.312,21.671 C22.905,18.743 23.168,15.417 22,12.99 C21.548,12.05 20.9,11.28 20.078,10.698 C20.84,12.457 21.268,14.997 20.116,18.27 C19.984,18.644 19.645,18.904 19.249,18.935 C18.866,18.967 18.48,18.76 18.291,18.412 C17.96,17.796 17.049,16.408 16.008,15.579 C16.416,17.455 16.675,20.262 15.335,22.367 C15.263,22.48 15.197,22.59 15.134,22.701 C13.664,25.29 14.452,28.671 16.929,30.397 L16.929,30.397 Z M24.471,14.155 C25.036,16.804 24.563,19.88 23.07,22.626 C20.905,26.607 21.707,30.945 22.161,32.651 C24.117,32.322 29.063,31.094 30.119,27.002 C31.133,23.076 30.52,20.803 29.81,19.578 C29.101,22.122 27.802,23.193 27.735,23.247 C27.411,23.506 26.963,23.539 26.606,23.333 C26.248,23.125 26.056,22.718 26.121,22.309 C26.727,18.541 25.761,15.919 24.471,14.155 L24.471,14.155 Z M13.65,21.29 C15.259,18.763 13.576,14.325 13.559,14.28 C13.441,13.973 13.481,13.626 13.667,13.354 C13.854,13.082 14.161,12.919 14.491,12.919 C16.242,12.919 17.739,14.274 18.741,15.512 C19.27,11.523 16.864,9.428 16.744,9.328 C16.4,9.036 16.291,8.546 16.484,8.137 C16.676,7.728 17.114,7.491 17.561,7.576 C19.035,7.837 20.334,8.398 21.411,9.209 C22.366,9.636 27.137,12.048 28.125,17.909 C28.153,17.733 28.176,17.549 28.197,17.359 C28.231,17.026 28.43,16.732 28.727,16.577 C29.025,16.421 29.379,16.425 29.671,16.585 C29.858,16.688 34.204,19.18 32.055,27.502 C30.38,33.99 21.875,34.729 21.514,34.757 L21.513,34.747 C21.491,34.749 21.472,34.76 21.45,34.76 C21.338,34.76 21.224,34.741 21.115,34.701 C19.061,33.967 17.268,33.071 15.785,32.038 C12.471,29.728 11.421,25.191 13.395,21.711 C13.476,21.57 13.56,21.43 13.65,21.29 L13.65,21.29 Z M5.49,33.95 L7.111,32.777 C5.03,29.902 3.86,26.538 3.676,23 L6,23 L6,21 L3.679,21 C3.871,17.483 5.04,14.14 7.111,11.281 L5.49,10.108 C3.172,13.311 1.873,17.059 1.679,21 L0,21 L0,23 L1.676,23 C1.862,26.962 3.16,30.731 5.49,33.95 L5.49,33.95 Z M32.747,36.918 C29.88,38.993 26.528,40.162 23,40.351 L23,38 L21,38 L21,40.351 C17.472,40.163 14.118,38.994 11.25,36.918 L10.078,38.539 C13.289,40.862 17.049,42.161 21,42.351 L21,44 L23,44 L23,42.351 C26.951,42.16 30.709,40.862 33.919,38.539 L32.747,36.918 Z M11.25,7.14 C14.118,5.064 17.472,3.896 21,3.708 L21,6 L23,6 L23,3.708 C26.528,3.896 29.88,5.065 32.747,7.14 L33.919,5.52 C30.709,3.196 26.951,1.897 23,1.708 L23,0 L21,0 L21,1.708 C17.048,1.897 13.289,3.196 10.078,5.52 L11.25,7.14 Z M42.32,21 C42.125,17.059 40.826,13.311 38.509,10.108 L36.888,11.281 C38.958,14.14 40.127,17.483 40.32,21 L38,21 L38,23 L40.323,23 C40.139,26.538 38.969,29.902 36.888,32.777 L38.509,33.95 C40.838,30.731 42.137,26.962 42.323,23 L44,23 L44,21 L42.32,21 Z M35.027,10.416 L41.186,4.256 L39.772,2.842 L33.613,9.002 L35.027,10.416 Z M8.972,33.642 L2.812,39.802 L4.226,41.216 L10.386,35.056 L8.972,33.642 Z M12.414,11.001 L1.586,0.173 L0.172,1.587 L11,12.415 L12.414,11.001 Z M33,31.586 L43.826,42.413 L42.412,43.827 L31.586,33 L33,31.586 Z" id="AWS-WAF_Icon_48_Squid"></path>
+        </g>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Waf
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="cloudwatch.Cloudwatch"
+               data-tooltip="Cloudwatch (5 resources)" data-is-vpc="false"
+               transform="translate(1136.0, 610)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-CloudWatch_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-CloudWatch_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Management-Governance" fill="#E7157B">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M42.184,39.3811216 C42.184,37.1282698 40.347,35.2954581 38.089,35.2954581 C35.831,35.2954581 33.995,37.1282698 33.995,39.3811216 C33.995,41.6339735 35.831,43.4667852 38.089,43.4667852 C40.347,43.4667852 42.184,41.6339735 42.184,39.3811216 L42.184,39.3811216 Z M44.184,39.3811216 C44.184,42.7344587 41.45,45.4622252 38.089,45.4622252 C34.729,45.4622252 31.995,42.7344587 31.995,39.3811216 C31.995,36.0277846 34.729,33.3000181 38.089,33.3000181 C41.45,33.3000181 44.184,36.0277846 44.184,39.3811216 L44.184,39.3811216 Z M50.743,49.6157337 L45.846,45.2157884 C45.524,45.6398194 45.17,46.0379097 44.785,46.4050706 L49.671,50.8030205 C49.997,51.0953525 50.505,51.0714072 50.802,50.744155 C51.096,50.4179006 51.07,49.9110588 50.743,49.6157337 L50.743,49.6157337 Z M38.089,47.091502 C42.351,47.091502 45.818,43.6324067 45.818,39.3811216 C45.818,35.1298366 42.351,31.6707413 38.089,31.6707413 C33.829,31.6707413 30.362,35.1298366 30.362,39.3811216 C30.362,43.6324067 33.829,47.091502 38.089,47.091502 L38.089,47.091502 Z M52.081,48.1341194 C53.227,49.1667597 53.319,50.9357173 52.288,52.0801021 C51.735,52.6897091 50.971,53 50.205,53 C49.538,53 48.868,52.7655358 48.333,52.2866302 L43.172,47.6412457 C41.691,48.5521641 39.954,49.0869421 38.089,49.0869421 C32.725,49.0869421 28.362,44.7328919 28.362,39.3811216 C28.362,34.0293514 32.725,29.6753012 38.089,29.6753012 C43.454,29.6753012 47.818,34.0293514 47.818,39.3811216 C47.818,40.8447769 47.482,42.2286146 46.897,43.4757646 L52.081,48.1341194 Z M17.697,23.5383254 C17.697,23.9394088 17.72,24.3384968 17.767,24.722619 C17.802,25.0059715 17.713,25.2913194 17.524,25.5048315 C17.375,25.6714508 17.177,25.7831954 16.961,25.8241019 C15.084,26.3079961 12,27.7716514 12,32.1566309 C12,35.4800363 13.836,37.3138458 15.377,38.2676661 C16.049,38.6897017 16.64,38.9052092 17.138,38.9101978 L26.127,38.9101978 L26.127,40.9056378 L17.127,40.9056378 C16.243,40.8966584 15.3,40.577388 14.317,39.9588015 C12.708,38.9640747 10,36.6214281 10,32.1566309 C10,26.8876715 13.526,24.8642953 15.71,24.117003 C15.702,23.924443 15.697,23.7308853 15.697,23.5383254 C15.697,19.1603299 18.673,14.6217015 22.621,12.9784566 C27.232,11.0508615 32.119,12.0066773 35.687,15.5336176 C36.734,16.5672555 37.604,17.8084192 38.285,19.2361566 C39.203,18.5507229 40.304,18.1745825 41.459,18.1745825 C43.874,18.1745825 46.587,19.9684831 47.122,23.8895228 C50.58,24.7216213 54,27.27778 54,32.2174919 C54,35.1078868 52.864,37.4565197 50.713,39.0089721 L49.541,37.3926656 C51.173,36.2143583 52,34.4733368 52,32.2174919 C52,27.2388689 47.811,25.9997007 46.01,25.6983892 C45.743,25.6534918 45.505,25.5018384 45.351,25.2793468 C45.208,25.071821 45.15,24.8184001 45.186,24.5709656 C44.931,21.5319104 43.141,20.1700225 41.459,20.1700225 C40.402,20.1700225 39.409,20.6858438 38.734,21.5857873 C38.514,21.8791169 38.156,22.0297727 37.786,21.9748981 C37.422,21.9210212 37.118,21.6715912 36.993,21.3263801 C36.359,19.5743837 35.446,18.1027466 34.281,16.9513777 C32.851,15.5396039 28.933,12.506535 23.391,14.81925 C20.198,16.1492108 17.697,19.9784603 17.697,23.5383254 L17.697,23.5383254 Z" id="Amazon-CloudWatch_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Cloudwatch
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#E7157B" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">2</text>
+            
+            </g>
+            
+
+            <g class="service draggable" data-service-id="cognito.Cognito"
+               data-tooltip="Cognito (3 resources)" data-is-vpc="false"
+               transform="translate(980.0, 70)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-Cognito_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-Cognito_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Security-Identity-Compliance" fill="#DD344C">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M48.3851357,21.0063704 L48.3851357,15.7026189 C48.3851357,14.780967 47.766933,14.0014156 47.034585,14.0014156 L13.370821,14.0014156 C12.638473,14.0014156 12.0202703,14.780967 12.0202703,15.7026189 L12.0202703,21.0063704 L27.1722975,21.0063704 L27.1722975,17.0035391 C27.1722975,16.4511484 27.623828,16.0028313 28.1824327,16.0028313 L45.3547302,16.0028313 C45.913335,16.0028313 46.3648654,16.4511484 46.3648654,17.0035391 L46.3648654,21.0063704 L48.3851357,21.0063704 Z M44.3445951,18.0042469 L29.1925678,18.0042469 L29.1925678,30.3880062 C30.1532064,28.5877328 31.7471996,27.158722 33.7260544,26.4031876 C33.1189632,25.6316419 32.7724868,24.6739645 32.7724868,23.6662517 C32.7724868,21.1985063 34.8109395,19.1920871 37.318095,19.1920871 C39.8242403,19.1920871 41.8637032,21.1985063 41.8637032,23.6662517 C41.8637032,24.7400112 41.4657099,25.7517268 40.7838687,26.5452881 C42.1970478,27.1607234 43.4364836,28.1454199 44.3445951,29.3913012 L44.3445951,18.0042469 Z M39.8434329,23.6662517 C39.8434329,22.302287 38.7110714,21.1935027 37.318095,21.1935027 C35.9251186,21.1935027 34.7927571,22.302287 34.7927571,23.6662517 C34.7927571,24.5628859 35.2907537,25.3894706 36.0938112,25.8237778 C36.8453517,26.2290645 37.7726558,26.2360694 38.5383383,25.8227771 C39.343416,25.3894706 39.8434329,24.5628859 39.8434329,23.6662517 L39.8434329,23.6662517 Z M48.3861458,33.0148642 L48.3851357,23.007786 L46.3648654,23.007786 L46.3648654,30.0127407 L44.6516762,30.0127407 L43.006166,30.9984379 C42.1596728,29.6134583 40.8050815,28.5737229 39.2514937,28.1043909 C37.8766997,28.7108198 36.271595,28.7048156 34.9149835,28.1043909 C32.2532774,28.9059579 30.40473,31.2636255 30.2350273,34.015572 L36.2635139,34.015572 L36.2635139,36.0169876 L28.1824327,36.0169876 C27.623828,36.0169876 27.1722975,35.5686705 27.1722975,35.0162798 L27.1722975,23.007786 L12.0202703,23.007786 L12.0202703,37.3179078 C12.0202703,38.2395597 12.638473,39.0191111 13.370821,39.0191111 L33.2331084,39.0191111 L33.2331084,41.0205267 L13.370821,41.0205267 C11.5121723,41.0205267 10,39.3593517 10,37.3179078 L10,15.7026189 C10,13.661175 11.5121723,12 13.370821,12 L47.034585,12 C48.8932337,12 50.405406,13.661175 50.405406,15.7026189 L50.405406,33.0148642 L48.3861458,33.0148642 Z M43.305166,46.9937517 L48.9316188,41.4198091 L47.5032877,40.0048083 L42.5910005,44.8712504 L40.4757775,42.7757682 L39.0474464,44.1907691 L41.8768349,46.9937517 C42.0657302,47.1818847 42.3223045,47.2869591 42.5910005,47.2869591 C42.8586863,47.2869591 43.1152606,47.1818847 43.305166,46.9937517 L43.305166,46.9937517 Z M45.3173552,35.9629494 L45.3173552,35.9629494 C47.8174397,36.2661639 49.9983215,37.7822362 51.1498756,40.0198189 C51.8397979,41.3597667 52.1074837,42.8628298 51.922629,44.3638915 C51.7418148,45.8489419 51.1316932,47.2319201 50.1579229,48.3607186 C49.4659803,49.1642869 48.5922134,49.8277562 47.6315749,50.2790754 C46.3456728,50.8855044 44.9143113,51.1166679 43.4890106,50.9435454 C42.1051255,50.7764272 40.7980106,50.2340436 39.7090849,49.3774377 C37.6181051,47.7302726 36.5615038,45.1744649 36.8837369,42.5426033 C37.1877876,40.0548437 38.7070308,37.8853091 40.9475106,36.7374973 C42.019264,36.1891094 43.1950613,35.9079105 44.3930816,35.9079105 C44.7001627,35.9079105 45.0082539,35.9259232 45.3173552,35.9629494 L45.3173552,35.9629494 Z M48.4982708,52.0873545 C49.7134634,51.5159503 50.8195614,50.6763564 51.6943384,49.660638 C52.9267033,48.2306265 53.6994567,46.48239 53.9287574,44.6050621 C54.1610885,42.7077201 53.8226932,40.8073759 52.9499364,39.1101755 C51.4923114,36.2791731 48.7306019,34.3598155 45.5618079,33.9765444 C43.6496221,33.7423788 41.7293552,34.0846208 40.0202065,34.9602402 C37.1847572,36.4112665 35.26247,39.156208 34.8776085,42.3014327 C34.4715341,45.6297869 35.8079429,48.8600718 38.4524768,50.9435454 C39.8323214,52.0303141 41.4899532,52.7178004 43.2445579,52.9299505 C43.6334599,52.9769837 44.0233721,53 44.4102539,53 C45.823433,53 47.2174195,52.6907813 48.4982708,52.0873545 L48.4982708,52.0873545 Z M21.1114866,33.0148642 L24.1418921,33.0148642 L24.1418921,31.0134485 L21.1114866,31.0134485 L21.1114866,33.0148642 Z M14.0405406,33.0148642 L20.1013515,33.0148642 L20.1013515,31.0134485 L14.0405406,31.0134485 L14.0405406,33.0148642 Z M14.0405406,28.0113251 L23.1317569,28.0113251 L23.1317569,26.0099094 L14.0405406,26.0099094 L14.0405406,28.0113251 Z" id="Amazon-Cognito_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Cognito
+                </text>
+                
+            </g>
+            
+
+            <g class="service draggable" data-service-id="dynamodb.Dynamodb"
+               data-tooltip="Dynamodb (2 resources)" data-is-vpc="false"
+               transform="translate(746.0, 410)" style="cursor: grab;">
+                <rect class="service-bg" x="-8" y="-8"
+                    width="80" height="100"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
+                    filter="url(#shadow)"/>
+                <svg class="service-icon" width="64" height="64" viewBox="0 0 64 64">
+                    
+    <title>Icon-Architecture/48/Arch_Amazon-DynamoDB_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-DynamoDB_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Database" fill="#C925D1">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M46.5858287,25.2492763 L43.0008475,25.2492763 C42.6728493,25.2492763 42.3658509,25.086523 42.1788519,24.8145936 C41.9918528,24.5416533 41.9488531,24.1939071 42.0648525,23.8835638 L44.5578394,17.162156 L35.6448862,17.162156 L31.5539077,26.2601663 L36.0008843,26.2601663 C36.3218827,26.2601663 36.6238811,26.4158434 36.8128801,26.6806966 C36.9998791,26.943528 37.0518788,27.2821762 36.9488794,27.5904976 L33.2888986,38.6910812 L46.5858287,25.2492763 Z M49.7068123,24.9530855 L31.7079069,43.1491063 C31.5159079,43.3442081 31.2589093,43.4452971 31.0009106,43.4452971 C30.8189116,43.4452971 30.6379125,43.3957635 30.4759134,43.2946744 C30.0809155,43.0480173 29.9049164,42.5597574 30.0529156,42.1149658 L34.6128916,28.2819464 L30.0009159,28.2819464 C29.6609177,28.2819464 29.3449193,28.1070624 29.1599203,27.8189588 C28.9769213,27.5288333 28.9499214,27.1659238 29.0909207,26.8525479 L34.0908944,15.7327574 C34.2528935,15.3718697 34.6078917,15.1403759 35.0008896,15.1403759 L46.0008318,15.1403759 C46.32883,15.1403759 46.6358284,15.3031292 46.8228274,15.5750586 C47.0098265,15.8479989 47.0528262,16.1957451 46.9378268,16.5060883 L44.44384,23.2274962 L48.999816,23.2274962 C49.4038139,23.2274962 49.769812,23.4741534 49.9238111,23.8512154 C50.0788103,24.2292882 49.9928108,24.663971 49.7068123,24.9530855 L49.7068123,24.9530855 Z M41.0008581,44.2196388 C38.2908723,46.1059597 33.3138985,47.1016863 28.5329236,47.1016863 C23.7169489,47.1016863 18.6959753,46.0928181 15.9999895,44.1781923 L16.0009895,47.9943023 C16.0009895,49.6582273 20.7689644,51.9782199 28.5329236,51.9782199 C36.0278842,51.9782199 41.0008581,49.2761108 41.0008581,47.4888572 L41.0008581,44.2196388 Z M43.0648472,40.9504204 C43.0648472,41.1374351 43.0328474,41.3173735 43.0008475,41.4963011 L43.0008475,47.4888572 C43.0008475,51.0795387 36.5108817,54 28.5329236,54 C21.6299599,54 14.6619965,52.1106465 14.0599997,48.4997473 L14.001,48.4997473 L14,43.4452971 L14,30.3037265 L14,16.1512659 L14.001,16.1512659 C14.001,12.1552176 21.4879606,10 28.5329236,10 C32.4739029,10 36.262883,10.6398934 38.9298689,11.755916 L38.163873,13.6240408 C35.7318858,12.6050636 32.2209042,12.0217801 28.5329236,12.0217801 C20.7689644,12.0217801 16.0009895,14.4266875 16.0009895,16.1512659 C16.0009895,17.8758443 20.7689644,20.2807517 28.5329236,20.2807517 C28.7279226,20.2807517 28.9319215,20.2817626 29.1289205,20.2736755 L29.2069201,22.2934338 C28.9819212,22.3025318 28.7579224,22.3025318 28.5329236,22.3025318 C23.7159489,22.3025318 18.6959753,21.2936636 15.9999895,19.3790378 L15.9999895,23.7369848 L16.0009895,23.7369848 L16.0009895,23.7541699 C16.0059895,24.2838763 16.4899869,24.8974866 17.3649823,25.4736939 C19.3469719,26.7615678 22.9149531,27.642053 26.9039322,27.8250241 L26.8129326,29.8447824 C22.6869543,29.6547351 19.0629734,28.7762717 16.7269857,27.4287552 C16.4169873,27.7269678 16.0009895,28.4851353 16.0009895,28.8955567 C16.0009895,30.6201351 20.7689644,33.0250425 28.5329236,33.0250425 C29.2709197,33.0250425 29.9979159,32.9997703 30.6949122,32.9502366 L30.8359115,34.9669623 C30.0919154,35.0205394 29.3169195,35.0468226 28.5329236,35.0468226 C23.7159489,35.0468226 18.6959753,34.0379543 15.9999895,32.1233286 L15.9999895,35.7928594 L16.0009895,35.7928594 C16.0059895,36.339751 16.4899869,36.9533612 17.3649823,37.5295685 C19.6329704,39.0044571 23.9139479,39.9233562 28.5329236,39.9233562 L28.8629219,39.9233562 L28.8629219,41.9451362 L28.5329236,41.9451362 C23.7549487,41.9451362 18.6729754,40.9372789 16.0009895,39.4017369 C15.6789912,39.6999495 16.0009895,40.4126269 16.0009895,40.9504204 C16.0009895,42.6749989 20.7689644,45.0799063 28.5329236,45.0799063 C36.2978828,45.0799063 41.0648577,42.6749989 41.0648577,40.9504204 C41.0648577,40.3408537 40.4658609,39.7757662 39.9728635,39.4118458 C39.5638656,39.658503 39.113868,39.8950512 38.6008707,40.1113817 L37.8328747,38.2442678 C38.3638719,38.0208611 38.8228695,37.7812802 39.1968675,37.5326012 C40.2978617,36.798695 41.0008581,35.7544456 41.0008581,35.3581767 L43.0008475,35.3581767 C43.0008475,36.2983045 42.3798508,37.3051509 41.583855,38.1330699 C42.7758487,39.1732757 43.0648472,40.2114598 43.0648472,40.9504204 L43.0648472,40.9504204 Z M17.1419835,48.3885494 C17.9329793,48.796949 18.8579745,49.1608694 19.893969,49.4691908 L20.457966,47.5292928 C19.5419709,47.2573634 18.7319751,46.9399439 18.0519787,46.5881542 L17.1419835,48.3885494 Z M19.893969,37.3385103 L20.457966,35.3996232 C19.5419709,35.1266829 18.7319751,34.8102743 18.0519787,34.4584846 L17.1419835,36.2578689 C17.9329793,36.6672793 18.8579745,37.0301889 19.893969,37.3385103 L19.893969,37.3385103 Z M17.1419835,24.1281992 L18.0519787,22.3278041 C18.7319751,22.6795938 19.5419709,22.9960024 20.457966,23.2689427 L19.893969,25.2088407 C18.8579745,24.9005192 17.9329793,24.5365988 17.1419835,24.1281992 L17.1419835,24.1281992 Z" id="Amazon-DynamoDB_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+
+                </svg>
+                <text class="service-label" x="32.0" y="80"
+                    font-family="Arial, sans-serif" font-size="12" fill="#333"
+                    text-anchor="middle" font-weight="500">
+                    Dynamodb
+                </text>
+                
+            <circle class="count-badge" cx="56" cy="8" r="12"
+                fill="#3B48CC" stroke="white" stroke-width="2"/>
+            <text class="count-text" x="56" y="12"
+                font-family="Arial, sans-serif" font-size="11" fill="white"
+                text-anchor="middle" font-weight="bold">2</text>
+            
+            </g>
+            
+</g>
+</svg>
+            </div>
+        </div>
+        <div class="legend">
+            <h3>Legend</h3>
+            <div class="legend-grid">
+                <div class="legend-section">
+                    <h4>Connection Types</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <div class="legend-line" style="background: #3B48CC;"></div>
+                            <span>Data Flow</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-line" style="background: #E7157B;"></div>
+                            <span>Event Trigger</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-line" style="background: #6c757d;"></div>
+                            <span>Encryption</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-line" style="background: #999;"></div>
+                            <span>Reference</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="legend-section">
+                    <h4>Instructions</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">Drag icons to reposition</div>
+                        <div class="legend-item">VPC services stay within VPC bounds</div>
+                        <div class="legend-item">Use Save/Load to persist layout</div>
+                        <div class="legend-item">Export as PNG or JPG for sharing</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="highlight-info" id="highlight-info"></div>
+    <div class="export-modal" id="export-modal">
+        <div class="export-modal-content">
+            <h3>Export Diagram</h3>
+            <canvas id="export-canvas" style="display:none;"></canvas>
+            <img id="export-preview" class="export-preview" alt="Preview"/>
+            <div class="export-modal-actions">
+                <button class="export-btn export-btn-secondary" onclick="closeExportModal()">Cancel</button>
+                <a id="export-download" class="export-btn export-btn-primary" download="diagram.png">Download</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Service positions storage
+        const servicePositions = {};
+        const iconSize = 64;
+        let originalPositions = {};
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initDragAndDrop();
+            initTooltips();
+            initHighlighting();
+            updateAllConnections();
+            saveOriginalPositions();
+        });
+
+        function saveOriginalPositions() {
+            document.querySelectorAll('.service').forEach(el => {
+                const id = el.dataset.serviceId;
+                const transform = el.getAttribute('transform');
+                const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+                if (match) {
+                    originalPositions[id] = { x: parseFloat(match[1]), y: parseFloat(match[2]) };
+                    servicePositions[id] = { ...originalPositions[id] };
+                }
+            });
+        }
+
+        function initDragAndDrop() {
+            const svg = document.getElementById('diagram-svg');
+            let dragging = null;
+            let offset = { x: 0, y: 0 };
+
+            document.querySelectorAll('.service.draggable').forEach(el => {
+                el.addEventListener('mousedown', startDrag);
+            });
+
+            svg.addEventListener('mousemove', drag);
+            svg.addEventListener('mouseup', endDrag);
+            svg.addEventListener('mouseleave', endDrag);
+
+            function startDrag(e) {
+                e.preventDefault();
+                dragging = e.currentTarget;
+                dragging.classList.add('dragging');
+                dragging.style.cursor = 'grabbing';
+
+                const pt = svg.createSVGPoint();
+                pt.x = e.clientX;
+                pt.y = e.clientY;
+                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+                const id = dragging.dataset.serviceId;
+                const pos = servicePositions[id] || { x: 0, y: 0 };
+                offset.x = svgP.x - pos.x;
+                offset.y = svgP.y - pos.y;
+
+                // Hide tooltip while dragging
+                document.getElementById('tooltip').style.display = 'none';
+            }
+
+            function drag(e) {
+                if (!dragging) return;
+
+                const pt = svg.createSVGPoint();
+                pt.x = e.clientX;
+                pt.y = e.clientY;
+                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+                let newX = svgP.x - offset.x;
+                let newY = svgP.y - offset.y;
+
+                // Constrain to VPC if it's a VPC service
+                if (dragging.dataset.isVpc === 'true') {
+                    const vpcGroup = document.querySelector('.group-vpc .group-bg');
+                    if (vpcGroup) {
+                        const minX = parseFloat(vpcGroup.dataset.minX) + 20;
+                        const minY = parseFloat(vpcGroup.dataset.minY) + 40;
+                        const maxX = parseFloat(vpcGroup.dataset.maxX) - iconSize - 20;
+                        const maxY = parseFloat(vpcGroup.dataset.maxY) - iconSize - 40;
+
+                        newX = Math.max(minX, Math.min(maxX, newX));
+                        newY = Math.max(minY, Math.min(maxY, newY));
+                    }
+                } else {
+                    // Constrain to AWS Cloud bounds
+                    const cloudGroup = document.querySelector('.group-aws_cloud .group-bg');
+                    if (cloudGroup) {
+                        const minX = parseFloat(cloudGroup.dataset.minX) + 20;
+                        const minY = parseFloat(cloudGroup.dataset.minY) + 40;
+                        const maxX = parseFloat(cloudGroup.dataset.maxX) - iconSize - 20;
+                        const maxY = parseFloat(cloudGroup.dataset.maxY) - iconSize - 40;
+
+                        newX = Math.max(minX, Math.min(maxX, newX));
+                        newY = Math.max(minY, Math.min(maxY, newY));
+                    }
+                }
+
+                const id = dragging.dataset.serviceId;
+                servicePositions[id] = { x: newX, y: newY };
+
+                dragging.setAttribute('transform', `translate(${newX}, ${newY})`);
+                updateConnectionsFor(id);
+            }
+
+            function endDrag() {
+                if (dragging) {
+                    dragging.classList.remove('dragging');
+                    dragging.style.cursor = 'grab';
+                    dragging = null;
+                }
+            }
+        }
+
+        function updateConnectionsFor(serviceId) {
+            document.querySelectorAll('.connection').forEach(conn => {
+                if (conn.dataset.source === serviceId || conn.dataset.target === serviceId) {
+                    updateConnection(conn);
+                }
+            });
+        }
+
+        function updateAllConnections() {
+            document.querySelectorAll('.connection').forEach(updateConnection);
+        }
+
+        function updateConnection(connEl) {
+            const sourceId = connEl.dataset.source;
+            const targetId = connEl.dataset.target;
+
+            const sourcePos = servicePositions[sourceId];
+            const targetPos = servicePositions[targetId];
+
+            if (!sourcePos || !targetPos) return;
+
+            // Calculate center points
+            const halfSize = iconSize / 2;
+            let sx = sourcePos.x + halfSize;
+            let sy = sourcePos.y + halfSize;
+            let tx = targetPos.x + halfSize;
+            let ty = targetPos.y + halfSize;
+
+            // Adjust to connect from edges
+            if (Math.abs(ty - sy) > Math.abs(tx - sx)) {
+                // Mostly vertical
+                if (ty > sy) {
+                    sy = sourcePos.y + iconSize + 8;
+                    ty = targetPos.y - 8;
+                } else {
+                    sy = sourcePos.y - 8;
+                    ty = targetPos.y + iconSize + 8;
+                }
+            } else {
+                // Mostly horizontal
+                if (tx > sx) {
+                    sx = sourcePos.x + iconSize + 8;
+                    tx = targetPos.x - 8;
+                } else {
+                    sx = sourcePos.x - 8;
+                    tx = targetPos.x + iconSize + 8;
+                }
+            }
+
+            // Quadratic curve path (matches server-side rendering)
+            const midX = (sx + tx) / 2;
+            const midY = (sy + ty) / 2;
+            const path = `M ${sx} ${sy} Q ${midX} ${sy}, ${midX} ${midY} T ${tx} ${ty}`;
+
+            const pathEl = connEl.querySelector('.connection-path');
+            const hitareaEl = connEl.querySelector('.connection-hitarea');
+            if (pathEl) {
+                pathEl.setAttribute('d', path);
+            }
+            if (hitareaEl) {
+                hitareaEl.setAttribute('d', path);
+            }
+        }
+
+        // ============ HIGHLIGHTING SYSTEM ============
+        let currentHighlight = null;
+
+        function initHighlighting() {
+            // Click on service to highlight connections
+            document.querySelectorAll('.service').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    // Don't highlight if dragging
+                    if (el.classList.contains('dragging')) return;
+                    e.stopPropagation();
+
+                    const serviceId = el.dataset.serviceId;
+
+                    // Toggle highlight
+                    if (currentHighlight === serviceId) {
+                        clearHighlights();
+                    } else {
+                        highlightService(serviceId);
+                    }
+                });
+            });
+
+            // Click on connection to highlight
+            document.querySelectorAll('.connection').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+
+                    const sourceId = el.dataset.source;
+                    const targetId = el.dataset.target;
+                    const connKey = `conn:${sourceId}->${targetId}`;
+
+                    // Toggle highlight
+                    if (currentHighlight === connKey) {
+                        clearHighlights();
+                    } else {
+                        highlightConnection(el, sourceId, targetId);
+                    }
+                });
+            });
+
+            // Click on background to clear highlights
+            document.getElementById('diagram-svg').addEventListener('click', (e) => {
+                if (e.target.tagName === 'svg' || e.target.classList.contains('group-bg')) {
+                    clearHighlights();
+                }
+            });
+        }
+
+        function highlightService(serviceId) {
+            clearHighlights();
+            currentHighlight = serviceId;
+
+            // Find all connected services
+            const connectedServices = new Set([serviceId]);
+            const connectedConnections = [];
+
+            document.querySelectorAll('.connection').forEach(conn => {
+                const source = conn.dataset.source;
+                const target = conn.dataset.target;
+
+                if (source === serviceId || target === serviceId) {
+                    connectedServices.add(source);
+                    connectedServices.add(target);
+                    connectedConnections.push(conn);
+                }
+            });
+
+            // Dim all services and connections
+            document.querySelectorAll('.service').forEach(el => {
+                el.classList.add('dimmed');
+            });
+            document.querySelectorAll('.connection').forEach(el => {
+                el.classList.add('dimmed');
+            });
+
+            // Highlight connected services
+            connectedServices.forEach(id => {
+                const el = document.querySelector(`[data-service-id="${id}"]`);
+                if (el) {
+                    el.classList.remove('dimmed');
+                    el.classList.add('highlighted');
+                }
+            });
+
+            // Highlight connected connections
+            connectedConnections.forEach(conn => {
+                conn.classList.remove('dimmed');
+                conn.classList.add('highlighted');
+            });
+
+            // Show info tooltip
+            showHighlightInfo(serviceId, connectedServices.size - 1, connectedConnections.length);
+        }
+
+        function highlightConnection(connEl, sourceId, targetId) {
+            clearHighlights();
+            currentHighlight = `conn:${sourceId}->${targetId}`;
+
+            // Dim all
+            document.querySelectorAll('.service').forEach(el => {
+                el.classList.add('dimmed');
+            });
+            document.querySelectorAll('.connection').forEach(el => {
+                el.classList.add('dimmed');
+            });
+
+            // Highlight the connection
+            connEl.classList.remove('dimmed');
+            connEl.classList.add('highlighted');
+
+            // Highlight source and target services
+            const sourceEl = document.querySelector(`[data-service-id="${sourceId}"]`);
+            const targetEl = document.querySelector(`[data-service-id="${targetId}"]`);
+
+            if (sourceEl) {
+                sourceEl.classList.remove('dimmed');
+                sourceEl.classList.add('highlighted');
+            }
+            if (targetEl) {
+                targetEl.classList.remove('dimmed');
+                targetEl.classList.add('highlighted');
+            }
+
+            // Show connection info
+            const label = connEl.dataset.label || connEl.dataset.connType;
+            const sourceName = sourceEl ? sourceEl.dataset.tooltip.split(' (')[0] : sourceId;
+            const targetName = targetEl ? targetEl.dataset.tooltip.split(' (')[0] : targetId;
+            showConnectionInfo(sourceName, targetName, label);
+        }
+
+        function clearHighlights() {
+            currentHighlight = null;
+
+            document.querySelectorAll('.service').forEach(el => {
+                el.classList.remove('dimmed', 'highlighted');
+            });
+            document.querySelectorAll('.connection').forEach(el => {
+                el.classList.remove('dimmed', 'highlighted');
+            });
+
+            hideHighlightInfo();
+        }
+
+        function showHighlightInfo(serviceId, connectedCount, connectionCount) {
+            const el = document.querySelector(`[data-service-id="${serviceId}"]`);
+            const name = el ? el.dataset.tooltip.split(' (')[0] : serviceId;
+
+            const infoEl = document.getElementById('highlight-info');
+            infoEl.innerHTML = `
+                <strong>${name}</strong><br>
+                Connected to ${connectedCount} service${connectedCount !== 1 ? 's' : ''}<br>
+                ${connectionCount} connection${connectionCount !== 1 ? 's' : ''}
+                <br><small>Click elsewhere to clear</small>
+            `;
+            infoEl.style.display = 'block';
+        }
+
+        function showConnectionInfo(sourceName, targetName, label) {
+            const infoEl = document.getElementById('highlight-info');
+            infoEl.innerHTML = `
+                <strong>${sourceName}</strong><br>
+                ↓ ${label}<br>
+                <strong>${targetName}</strong>
+                <br><small>Click elsewhere to clear</small>
+            `;
+            infoEl.style.display = 'block';
+        }
+
+        function hideHighlightInfo() {
+            document.getElementById('highlight-info').style.display = 'none';
+        }
+
+        function initTooltips() {
+            const tooltip = document.getElementById('tooltip');
+
+            document.querySelectorAll('.service').forEach(el => {
+                el.addEventListener('mouseenter', (e) => {
+                    if (el.classList.contains('dragging')) return;
+                    const data = el.dataset.tooltip;
+                    if (data) {
+                        tooltip.textContent = data;
+                        tooltip.style.display = 'block';
+                    }
+                });
+                el.addEventListener('mousemove', (e) => {
+                    if (el.classList.contains('dragging')) return;
+                    tooltip.style.left = e.clientX + 15 + 'px';
+                    tooltip.style.top = e.clientY + 15 + 'px';
+                });
+                el.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+            });
+        }
+
+        function resetPositions() {
+            Object.keys(originalPositions).forEach(id => {
+                servicePositions[id] = { ...originalPositions[id] };
+                const el = document.querySelector(`[data-service-id="${id}"]`);
+                if (el) {
+                    el.setAttribute('transform', `translate(${originalPositions[id].x}, ${originalPositions[id].y})`);
+                }
+            });
+            updateAllConnections();
+        }
+
+        function savePositions() {
+            const data = JSON.stringify(servicePositions);
+            localStorage.setItem('diagramPositions', data);
+            alert('Layout saved to browser storage!');
+        }
+
+        function loadPositions() {
+            const data = localStorage.getItem('diagramPositions');
+            if (!data) {
+                alert('No saved layout found.');
+                return;
+            }
+
+            const saved = JSON.parse(data);
+            Object.keys(saved).forEach(id => {
+                if (servicePositions[id]) {
+                    servicePositions[id] = saved[id];
+                    const el = document.querySelector(`[data-service-id="${id}"]`);
+                    if (el) {
+                        el.setAttribute('transform', `translate(${saved[id].x}, ${saved[id].y})`);
+                    }
+                }
+            });
+            updateAllConnections();
+            alert('Layout loaded!');
+        }
+
+        function exportAs(format) {
+            const svg = document.getElementById('diagram-svg');
+            const canvas = document.getElementById('export-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas size
+            const svgRect = svg.getBoundingClientRect();
+            const scale = 2; // Higher resolution
+            canvas.width = svg.viewBox.baseVal.width * scale;
+            canvas.height = svg.viewBox.baseVal.height * scale;
+
+            // Create image from SVG
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+
+            const img = new Image();
+            img.onload = () => {
+                // White background for JPG
+                if (format === 'jpg') {
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(url);
+
+                const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+                const quality = format === 'jpg' ? 0.95 : undefined;
+                const dataUrl = canvas.toDataURL(mimeType, quality);
+
+                // Show modal with preview
+                const preview = document.getElementById('export-preview');
+                const download = document.getElementById('export-download');
+
+                preview.src = dataUrl;
+                download.href = dataUrl;
+                download.download = `aws-diagram.${format}`;
+
+                document.getElementById('export-modal').classList.add('active');
+            };
+            img.src = url;
+        }
+
+        function closeExportModal() {
+            document.getElementById('export-modal').classList.remove('active');
+        }
+
+        // Close modal on background click
+        document.getElementById('export-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'export-modal') {
+                closeExportModal();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -6,7 +6,8 @@ Computes positions for logical services in the diagram.
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-from .aggregator import LogicalService, LogicalConnection, AggregatedResult
+
+from .aggregator import AggregatedResult, LogicalService
 
 
 @dataclass

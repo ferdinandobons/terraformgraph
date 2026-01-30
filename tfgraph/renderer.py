@@ -9,13 +9,11 @@ Generates interactive HTML diagrams with:
 
 import html
 import re
-import json
-from pathlib import Path
 from typing import Dict, List, Optional
 
-from .aggregator import LogicalService, LogicalConnection, AggregatedResult
-from .icons import IconMapper, CATEGORY_COLORS, TERRAFORM_TO_ICON
-from .layout import Position, ServiceGroup, LayoutConfig
+from .aggregator import AggregatedResult, LogicalConnection, LogicalService
+from .icons import IconMapper
+from .layout import LayoutConfig, Position, ServiceGroup
 
 
 class SVGRenderer:
@@ -45,7 +43,7 @@ class SVGRenderer:
         svg_parts.append(self._render_defs())
 
         # Background
-        svg_parts.append(f'''<rect width="100%" height="100%" fill="#f8f9fa"/>''')
+        svg_parts.append('''<rect width="100%" height="100%" fill="#f8f9fa"/>''')
 
         # Render groups (AWS Cloud, VPC)
         for group in groups:

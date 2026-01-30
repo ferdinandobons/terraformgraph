@@ -5,11 +5,11 @@ Parses Terraform files and extracts AWS resources and their relationships.
 """
 
 import re
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import hcl2
-import json
 
 
 @dataclass
@@ -246,7 +246,6 @@ class TerraformParser:
 
     def _extract_relationships(self, result: ParseResult) -> None:
         """Extract relationships between resources."""
-        resource_index = {r.full_id: r for r in result.resources}
         type_index: Dict[str, List[TerraformResource]] = {}
         for r in result.resources:
             type_index.setdefault(r.resource_type, []).append(r)
@@ -320,7 +319,6 @@ class TerraformParser:
         module_pattern = r'module\.(\w+)\.(\w+)'
         for match in re.finditer(module_pattern, value_str):
             module_name = match.group(1)
-            output_name = match.group(2)
             # Find resources in that module
             for res in type_index.get(target_type, []):
                 if res.module_path == module_name:

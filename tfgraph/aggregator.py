@@ -6,9 +6,10 @@ for cleaner architecture diagrams.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Optional, Tuple, Any
-from .parser import TerraformResource, ResourceRelationship, ParseResult
+from typing import Any, Dict, List, Optional
+
 from .config_loader import ConfigLoader
+from .parser import ParseResult, TerraformResource
 
 
 @dataclass

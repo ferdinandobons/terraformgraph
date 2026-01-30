@@ -20,11 +20,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from .parser import TerraformParser
 from .aggregator import aggregate_resources
 from .icons import IconMapper
-from .layout import LayoutEngine, LayoutConfig
-from .renderer import SVGRenderer, HTMLRenderer
+from .layout import LayoutConfig, LayoutEngine
+from .parser import TerraformParser
+from .renderer import HTMLRenderer, SVGRenderer
 
 
 def main():
@@ -177,7 +177,7 @@ Examples:
         output_path.write_text(html_content, encoding='utf-8')
 
         print(f"Diagram generated: {output_path.absolute()}")
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  Services: {len(aggregated.services)}")
         print(f"  Resources: {sum(len(s.resources) for s in aggregated.services)}")
         print(f"  Connections: {len(aggregated.connections)}")

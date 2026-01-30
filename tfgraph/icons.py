@@ -4,10 +4,9 @@ AWS Icon Mapper
 Maps Terraform resource types to AWS architecture icons.
 """
 
+import base64
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-import base64
-
 
 # Mapping from Terraform resource type to icon info
 # Format: resource_type -> (category, icon_name)

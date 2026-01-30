@@ -1,16 +1,15 @@
 """Integration tests for the full pipeline."""
 
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from terraform_diagram.parser import TerraformParser
-from terraform_diagram.aggregator import ResourceAggregator
-from terraform_diagram.layout import LayoutEngine
-from terraform_diagram.renderer import SVGRenderer, HTMLRenderer
-from terraform_diagram.icons import IconMapper
+from tfgraph.aggregator import ResourceAggregator
+from tfgraph.icons import IconMapper
+from tfgraph.layout import LayoutEngine
+from tfgraph.parser import TerraformParser
+from tfgraph.renderer import HTMLRenderer, SVGRenderer
 
 
 class TestFullPipeline:

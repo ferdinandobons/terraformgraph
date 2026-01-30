@@ -1,9 +1,9 @@
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from terraform_diagram.config_loader import ConfigLoader
+from tfgraph.config_loader import ConfigLoader
 
 
 class TestConfigLoader:

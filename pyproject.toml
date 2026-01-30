@@ -56,14 +56,14 @@ Repository = "https://github.com/yourusername/tfgraph.git"
 Issues = "https://github.com/yourusername/tfgraph/issues"
 
 [project.scripts]
-tfgraph = "terraform_diagram.main:main"
+tfgraph = "tfgraph.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["terraform_diagram*"]
+include = ["tfgraph*"]
 
 [tool.setuptools.package-data]
-terraform_diagram = ["config/*.yaml"]
+tfgraph = ["config/*.yaml"]
 
 [tool.black]
 line-length = 100
@@ -71,6 +71,8 @@ target-version = ["py39", "py310", "py311", "py312"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 

@@ -43,7 +43,7 @@ htmlcov/
 
 # Build outputs
 *.html
-!docs/**/*.html
+!example/example-project-diagram.html
 
 # AWS Icons (downloaded icons that should not be committed)
 AWS_Icons/
@@ -56,3 +56,4 @@ Thumbs.db
 
 # Local config
 .tfgraph/
+.claude
