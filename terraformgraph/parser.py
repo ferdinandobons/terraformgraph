@@ -4,12 +4,15 @@ Terraform HCL Parser
 Parses Terraform files and extracts AWS resources and their relationships.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import hcl2
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -130,7 +133,7 @@ class TerraformParser:
         # Parse all .tf files in directory
         tf_files = list(directory.glob("*.tf"))
         if not tf_files:
-            print(f"Warning: No .tf files found in {directory}")
+            logger.warning("No .tf files found in %s", directory)
 
         for tf_file in tf_files:
             self._parse_file(tf_file, result, module_path="")
@@ -153,7 +156,7 @@ class TerraformParser:
             with open(file_path, 'r') as f:
                 content = hcl2.load(f)
         except Exception as e:
-            print(f"Warning: Could not parse {file_path}: {e}")
+            logger.warning("Could not parse %s: %s", file_path, e)
             return
 
         # Extract resources
@@ -199,7 +202,7 @@ class TerraformParser:
             module_path = self.infrastructure_path / '.modules' / source
 
         if not module_path.exists():
-            print(f"Warning: Module path not found: {module_path}")
+            logger.warning("Module path not found: %s", module_path)
             return ParseResult()
 
         # Check cache

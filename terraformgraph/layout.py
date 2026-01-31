@@ -88,13 +88,13 @@ class LayoutEngine:
             st = service.service_type
             if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
                 edge_services.append(service)
-            elif st in ('alb', 'ecs', 'ec2', 'security', 'vpc'):
+            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc'):
                 vpc_services.append(service)
             elif st in ('s3', 'dynamodb', 'mongodb'):
                 data_services.append(service)
             elif st in ('sqs', 'sns', 'eventbridge'):
                 messaging_services.append(service)
-            elif st in ('kms', 'secrets', 'iam'):
+            elif st in ('kms', 'secrets', 'secrets_manager', 'iam'):
                 security_services.append(service)
             else:
                 other_services.append(service)

@@ -250,7 +250,7 @@ class SVGRenderer:
            data-target="{html.escape(connection.target_id)}"
            data-conn-type="{connection.connection_type}"
            data-label="{html.escape(label)}">
-            <path class="connection-hitarea" d="{path}"/>
+            <path class="connection-hitarea" d="{path}" fill="none" stroke="transparent" stroke-width="15"/>
             <path class="connection-path" d="{path}" fill="none" stroke="{stroke_color}"
                 stroke-width="1.5" {dash_attr} marker-end="{marker}" opacity="0.7"/>
         </g>
@@ -676,6 +676,11 @@ class HTMLRenderer:
 
             function startDrag(e) {{
                 e.preventDefault();
+
+                // Guard against null CTM (can happen during rendering)
+                const ctm = svg.getScreenCTM();
+                if (!ctm) return;
+
                 dragging = e.currentTarget;
                 dragging.classList.add('dragging');
                 dragging.style.cursor = 'grabbing';
@@ -683,7 +688,15 @@ class HTMLRenderer:
                 const pt = svg.createSVGPoint();
                 pt.x = e.clientX;
                 pt.y = e.clientY;
-                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                const svgP = pt.matrixTransform(ctm.inverse());
+
+                // Validate coordinates to prevent NaN issues
+                if (isNaN(svgP.x) || isNaN(svgP.y)) {{
+                    dragging.classList.remove('dragging');
+                    dragging.style.cursor = 'grab';
+                    dragging = null;
+                    return;
+                }}
 
                 const id = dragging.dataset.serviceId;
                 const pos = servicePositions[id] || {{ x: 0, y: 0 }};
@@ -697,10 +710,17 @@ class HTMLRenderer:
             function drag(e) {{
                 if (!dragging) return;
 
+                // Guard against null CTM
+                const ctm = svg.getScreenCTM();
+                if (!ctm) return;
+
                 const pt = svg.createSVGPoint();
                 pt.x = e.clientX;
                 pt.y = e.clientY;
-                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                const svgP = pt.matrixTransform(ctm.inverse());
+
+                // Validate coordinates to prevent NaN issues
+                if (isNaN(svgP.x) || isNaN(svgP.y)) return;
 
                 let newX = svgP.x - offset.x;
                 let newY = svgP.y - offset.y;
