@@ -8,7 +8,6 @@ Generates interactive HTML diagrams with:
 """
 
 import html
-import json
 import re
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -350,17 +349,6 @@ class SVGRenderer:
         # Determine if this is a VPC service
         is_vpc_service = 'true' if service.is_vpc_resource else 'false'
 
-        # For non-VPC services with multiple resources, add expandable attributes
-        expand_attrs = ''
-        if not service.is_vpc_resource and service.count > 1:
-            resources_data = json.dumps([{
-                'name': r.attributes.get('name', r.resource_name),
-                'type': r.resource_type,
-                'id': r.full_id
-            } for r in service.resources])
-            # Use single quotes for JSON to avoid conflict with HTML double quotes
-            expand_attrs = f"data-expandable='true' data-resources='{html.escape(resources_data)}'"
-
         # Determine subnet constraint directly from service.subnet_ids
         # This ensures the drag constraint matches the service's actual subnet assignment
         subnet_attr = ''
@@ -389,7 +377,6 @@ class SVGRenderer:
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
-               {expand_attrs}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
@@ -410,7 +397,6 @@ class SVGRenderer:
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
-               {expand_attrs}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
@@ -837,71 +823,6 @@ class HTMLRenderer:
             margin-top: 8px;
             font-size: 11px;
         }}
-        .expand-popup {{
-            position: fixed;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.25);
-            padding: 16px;
-            z-index: 2000;
-            max-width: 320px;
-            max-height: 400px;
-            overflow-y: auto;
-        }}
-        .expand-popup-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #eee;
-        }}
-        .expand-popup-title {{
-            margin: 0;
-            font-size: 14px;
-            font-weight: 600;
-            color: #232f3e;
-        }}
-        .expand-popup-close {{
-            cursor: pointer;
-            font-size: 20px;
-            color: #999;
-            line-height: 1;
-            padding: 4px;
-        }}
-        .expand-popup-close:hover {{
-            color: #333;
-        }}
-        .expand-popup-item {{
-            padding: 10px 12px;
-            border-radius: 6px;
-            margin-bottom: 6px;
-            background: #f8f9fa;
-            transition: background 0.15s;
-        }}
-        .expand-popup-item:hover {{
-            background: #e9ecef;
-        }}
-        .expand-popup-item:last-child {{
-            margin-bottom: 0;
-        }}
-        .expand-popup-item-name {{
-            font-weight: 500;
-            font-size: 13px;
-            color: #333;
-            margin-bottom: 2px;
-        }}
-        .expand-popup-item-type {{
-            font-size: 11px;
-            color: #666;
-        }}
-        .service[data-expandable="true"] {{
-            cursor: pointer !important;
-        }}
-        .service[data-expandable="true"]:hover .service-bg {{
-            stroke: #8c4fff;
-            stroke-width: 2;
-        }}
     </style>
 </head>
 <body>
@@ -1013,13 +934,6 @@ class HTMLRenderer:
     </div>
     <div class="tooltip" id="tooltip"></div>
     <div class="highlight-info" id="highlight-info"></div>
-    <div class="expand-popup" id="expand-popup" style="display: none;">
-        <div class="expand-popup-header">
-            <h4 class="expand-popup-title" id="expand-popup-title">Resources</h4>
-            <span class="expand-popup-close" onclick="closeExpandPopup()">&times;</span>
-        </div>
-        <div id="expand-popup-content"></div>
-    </div>
     <div class="export-modal" id="export-modal">
         <div class="export-modal-content">
             <h3>Export Diagram</h3>
@@ -1248,18 +1162,12 @@ class HTMLRenderer:
         let currentHighlight = null;
 
         function initHighlighting() {{
-            // Click on service to highlight connections or expand
+            // Click on service to highlight connections
             document.querySelectorAll('.service').forEach(el => {{
                 el.addEventListener('click', (e) => {{
                     // Don't process if dragging
                     if (el.classList.contains('dragging')) return;
                     e.stopPropagation();
-
-                    // Check if this is an expandable service (non-VPC with multiple resources)
-                    if (el.dataset.expandable === 'true') {{
-                        showExpandPopup(el, e.clientX, e.clientY);
-                        return;
-                    }}
 
                     const serviceId = el.dataset.serviceId;
 
@@ -1290,68 +1198,13 @@ class HTMLRenderer:
                 }});
             }});
 
-            // Click on background to clear highlights and close popups
+            // Click on background to clear highlights
             document.getElementById('diagram-svg').addEventListener('click', (e) => {{
                 if (e.target.tagName === 'svg' || e.target.classList.contains('group-bg')) {{
                     clearHighlights();
-                    closeExpandPopup();
                 }}
             }});
         }}
-
-        // ============ EXPAND POPUP SYSTEM ============
-        function showExpandPopup(serviceEl, x, y) {{
-            const popup = document.getElementById('expand-popup');
-            const title = document.getElementById('expand-popup-title');
-            const content = document.getElementById('expand-popup-content');
-
-            // Get service name from tooltip
-            const serviceName = serviceEl.dataset.tooltip.split(' (')[0];
-            title.textContent = serviceName + ' - Resources';
-
-            // Parse resources data
-            let resourceCount = 0;
-            try {{
-                const resources = JSON.parse(serviceEl.dataset.resources);
-                resourceCount = resources.length;
-
-                // Build content
-                content.innerHTML = resources.map(r => `
-                    <div class="expand-popup-item">
-                        <div class="expand-popup-item-name">${{r.name}}</div>
-                        <div class="expand-popup-item-type">${{r.type}}</div>
-                    </div>
-                `).join('');
-            }} catch (e) {{
-                content.innerHTML = '<div class="expand-popup-item">Error loading resources</div>';
-                resourceCount = 1;
-            }}
-
-            // Position popup (avoid going off screen)
-            const popupWidth = 320;
-            const popupHeight = Math.min(400, resourceCount * 60 + 60);
-            const posX = Math.min(x + 10, window.innerWidth - popupWidth - 20);
-            const posY = Math.min(y + 10, window.innerHeight - popupHeight - 20);
-
-            popup.style.left = posX + 'px';
-            popup.style.top = posY + 'px';
-            popup.style.display = 'block';
-        }}
-
-        function closeExpandPopup() {{
-            document.getElementById('expand-popup').style.display = 'none';
-        }}
-
-        // Close expand popup when clicking outside
-        document.addEventListener('click', (e) => {{
-            const popup = document.getElementById('expand-popup');
-            if (popup.style.display === 'block' && !popup.contains(e.target)) {{
-                const clickedService = e.target.closest('.service');
-                if (!clickedService || clickedService.dataset.expandable !== 'true') {{
-                    closeExpandPopup();
-                }}
-            }}
-        }});
 
         function highlightService(serviceId) {{
             clearHighlights();

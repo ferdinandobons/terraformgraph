@@ -5,9 +5,9 @@ Computes positions for logical services in the diagram.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
-from .aggregator import AggregatedResult, LogicalService
+from .aggregator import AggregatedResult, LogicalConnection, LogicalService
 
 if TYPE_CHECKING:
     from .aggregator import AvailabilityZone, VPCStructure
@@ -200,6 +200,9 @@ class LayoutEngine:
 
         y_offset += self.config.row_spacing + 20
 
+        # Track VPC bottom for non-VPC services layout
+        vpc_bottom_y = y_offset
+
         # Row 2: VPC box with internal services (only if VPC resources exist)
         # Filter out 'vpc' itself from vpc_services for positioning
         vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
@@ -262,46 +265,159 @@ class LayoutEngine:
                 )
 
             y_offset += vpc_height + 40
+            vpc_bottom_y = y_offset
 
-        # Row 3: Data services
-        if data_services:
-            x = self._center_row_start(len(data_services))
-            for service in data_services:
-                positions[service.id] = Position(
-                    x=x, y=y_offset,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
-                )
-                x += self.config.column_spacing
+        # Non-VPC services: use connection-based organic layout
+        non_vpc_services = data_services + messaging_services + security_services + other_services
 
-        y_offset += self.config.row_spacing
-
-        # Row 4: Messaging services
-        if messaging_services:
-            x = self._center_row_start(len(messaging_services))
-            for service in messaging_services:
-                positions[service.id] = Position(
-                    x=x, y=y_offset,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
-                )
-                x += self.config.column_spacing
-
-        y_offset += self.config.row_spacing
-
-        # Row 5: Security + Other services
-        bottom_services = security_services + other_services
-        if bottom_services:
-            x = self._center_row_start(len(bottom_services))
-            for service in bottom_services:
-                positions[service.id] = Position(
-                    x=x, y=y_offset,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
-                )
-                x += self.config.column_spacing
+        if non_vpc_services:
+            y_offset = self._layout_by_connections(
+                services=non_vpc_services,
+                connections=aggregated.connections,
+                start_x=self.config.padding + 50,
+                start_y=vpc_bottom_y,
+                available_width=self.config.canvas_width - 2 * (self.config.padding + 50),
+                positions=positions
+            )
 
         return positions, groups
+
+    def _build_connection_graph(
+        self,
+        services: List[LogicalService],
+        connections: List[LogicalConnection]
+    ) -> Dict[str, Set[str]]:
+        """Build adjacency list of connected service types.
+
+        Returns a bidirectional graph where each service_type maps to
+        the set of service_types it's connected to.
+        """
+        # Get service types present
+        present_types = {s.service_type for s in services}
+
+        # Build adjacency list (bidirectional)
+        graph: Dict[str, Set[str]] = {t: set() for t in present_types}
+
+        for conn in connections:
+            src, tgt = conn.source_id, conn.target_id
+            # Extract service_type from id (e.g., "lambda.Api Handler" -> "lambda")
+            src_type = src.split('.')[0] if '.' in src else src
+            tgt_type = tgt.split('.')[0] if '.' in tgt else tgt
+
+            if src_type in present_types and tgt_type in present_types:
+                graph[src_type].add(tgt_type)
+                graph[tgt_type].add(src_type)
+
+        return graph
+
+    def _layout_by_connections(
+        self,
+        services: List[LogicalService],
+        connections: List[LogicalConnection],
+        start_x: float,
+        start_y: float,
+        available_width: float,
+        positions: Dict[str, Position]
+    ) -> float:
+        """Position services based on their connections (organic layout).
+
+        Services with connections are placed adjacent to each other.
+        Returns the Y position after all services are placed.
+        """
+        if not services:
+            return start_y
+
+        # Build connection graph
+        graph = self._build_connection_graph(services, connections)
+
+        # Group services by type
+        by_type: Dict[str, List[LogicalService]] = {}
+        for s in services:
+            by_type.setdefault(s.service_type, []).append(s)
+
+        # Sort types by number of connections (most connected first)
+        sorted_types = sorted(
+            by_type.keys(),
+            key=lambda t: len(graph.get(t, set())),
+            reverse=True
+        )
+
+        # Calculate grid dimensions
+        service_width = self.config.icon_size + 50  # icon + padding
+        service_height = self.config.icon_size + 50  # icon + label + padding
+        cols = max(1, int(available_width / service_width))
+
+        # Track placed service types and their grid positions
+        placed_positions: Dict[str, Tuple[int, int]] = {}  # type -> (row, col)
+        grid: Dict[Tuple[int, int], str] = {}  # (row, col) -> service_type
+
+        current_row = 0
+        current_col = 0
+
+        for service_type in sorted_types:
+            type_services = by_type[service_type]
+
+            # Find best position based on connections
+            connected_types = graph.get(service_type, set())
+            best_col = current_col
+            best_row = current_row
+
+            # If connected to already-placed types, try to position nearby
+            for ct in connected_types:
+                if ct in placed_positions:
+                    ct_row, ct_col = placed_positions[ct]
+                    # Try adjacent positions (right, below, left)
+                    candidates = [
+                        (ct_row, ct_col + 1),
+                        (ct_row + 1, ct_col),
+                        (ct_row, ct_col - 1),
+                        (ct_row + 1, ct_col + 1),
+                    ]
+                    for r, c in candidates:
+                        if c >= 0 and c < cols and (r, c) not in grid:
+                            best_row, best_col = r, c
+                            break
+                    break
+
+            # Ensure we don't go out of bounds
+            if best_col >= cols:
+                best_col = 0
+                best_row = current_row + 1
+
+            # Position all services of this type (they share the same grid cell conceptually)
+            for i, service in enumerate(type_services):
+                # Calculate actual position
+                col = best_col + i
+                row = best_row
+                if col >= cols:
+                    col = col % cols
+                    row += (best_col + i) // cols
+
+                x = start_x + col * service_width
+                y = start_y + row * service_height
+
+                positions[service.id] = Position(
+                    x=x,
+                    y=y,
+                    width=self.config.icon_size,
+                    height=self.config.icon_size
+                )
+
+                grid[(row, col)] = service_type
+                current_row = max(current_row, row)
+
+            # Track where this type was placed (first position)
+            placed_positions[service_type] = (best_row, best_col)
+
+            # Update current position for next unconnected type
+            if best_col + len(type_services) >= cols:
+                current_row = best_row + 1
+                current_col = 0
+            else:
+                current_col = best_col + len(type_services)
+
+        # Return the Y position after all services
+        return start_y + (current_row + 1) * service_height + 20
 
     def _estimate_required_height(self, aggregated: AggregatedResult) -> int:
         """Estimate the required canvas height based on content.
@@ -320,6 +436,7 @@ class LayoutEngine:
         vpc_services = []
         data_services = []
         messaging_services = []
+        security_services = []
         other_services = []
 
         for service in aggregated.services:
@@ -332,6 +449,8 @@ class LayoutEngine:
                 data_services.append(service)
             elif st in ('sqs', 'sns', 'eventbridge'):
                 messaging_services.append(service)
+            elif st in ('kms', 'secrets', 'secrets_manager', 'iam'):
+                security_services.append(service)
             else:
                 other_services.append(service)
 
@@ -359,17 +478,15 @@ class LayoutEngine:
 
             height += vpc_height + 40
 
-        # Row 3: Data services
-        if data_services:
-            height += self.config.row_spacing
-
-        # Row 4: Messaging services
-        if messaging_services:
-            height += self.config.row_spacing
-
-        # Row 5: Security + Other services
-        if other_services:
-            height += self.config.row_spacing
+        # Non-VPC services: estimate based on grid layout
+        non_vpc_services = data_services + messaging_services + security_services + other_services
+        if non_vpc_services:
+            service_width = self.config.icon_size + 50
+            service_height = self.config.icon_size + 50
+            available_width = self.config.canvas_width - 2 * (self.config.padding + 50)
+            cols = max(1, int(available_width / service_width))
+            rows = (len(non_vpc_services) + cols - 1) // cols
+            height += rows * service_height + 40
 
         # Bottom padding
         height += self.config.padding + 40

@@ -318,78 +318,30 @@ class ResourceAggregator:
             if primary_count == 0:
                 continue  # Skip if no primary resources
 
-            # VPC resources: de-group - create one LogicalService per primary resource
-            if rule['is_vpc']:
-                for resource in primary_resources:
-                    # Extract subnet_ids for this specific resource
-                    subnet_ids = self._extract_subnet_ids([resource], state_result)
+            # De-group ALL resources - create one LogicalService per primary resource
+            for resource in primary_resources:
+                # Extract subnet_ids for this specific resource
+                subnet_ids = self._extract_subnet_ids([resource], state_result)
 
-                    # Get display name for this specific resource
-                    display_name = self._get_resource_display_name(resource, resolver)
-
-                    service = LogicalService(
-                        service_type=rule_name,
-                        name=display_name,
-                        icon_resource_type=rule['icon'],
-                        resources=[resource],  # Single resource
-                        count=1,
-                        is_vpc_resource=True,
-                        subnet_ids=subnet_ids,
-                        resource_id=resource.full_id,  # Unique ID for this resource
-                    )
-
-                    result.services.append(service)
-                    result.vpc_services.append(service)
-            else:
-                # Non-VPC resources: keep grouped (original behavior)
-                display_name = rule['display_name']
-                if primary_resources:
-                    first_resource = primary_resources[0]
-                    # Try to get name from attributes or use resource_name
-                    attr_name = first_resource.attributes.get('name', '')
-                    fallback_name = first_resource.resource_name
-
-                    # If attribute name contains unresolved variables, use resource_name
-                    if isinstance(attr_name, str) and attr_name:
-                        # Resolve any variable interpolations
-                        if resolver:
-                            resolved_name = resolver.resolve(attr_name)
-                            # If still contains ${, fall back to resource name
-                            if '${' in resolved_name:
-                                display_name = fallback_name
-                            else:
-                                display_name = resolved_name
-                        else:
-                            # If it contains ${, use resource_name, else use attr_name
-                            if '${' in attr_name:
-                                display_name = fallback_name
-                            else:
-                                display_name = attr_name
-                    else:
-                        display_name = fallback_name
-
-                    # Clean up underscore-based names to be more readable
-                    display_name = display_name.replace('_', ' ').title()
-
-                    # Truncate long names
-                    if len(display_name) > 20:
-                        display_name = display_name[:17] + "..."
-
-                # Extract subnet_ids from all resources (for non-VPC, usually empty)
-                subnet_ids = self._extract_subnet_ids(resources, state_result)
+                # Get display name for this specific resource
+                display_name = self._get_resource_display_name(resource, resolver)
 
                 service = LogicalService(
                     service_type=rule_name,
                     name=display_name,
                     icon_resource_type=rule['icon'],
-                    resources=resources,
-                    count=primary_count,
-                    is_vpc_resource=False,
+                    resources=[resource],  # Single resource
+                    count=1,
+                    is_vpc_resource=rule['is_vpc'],
                     subnet_ids=subnet_ids,
+                    resource_id=resource.full_id,  # Unique ID for this resource
                 )
 
                 result.services.append(service)
-                result.global_services.append(service)
+                if rule['is_vpc']:
+                    result.vpc_services.append(service)
+                else:
+                    result.global_services.append(service)
 
         # Create logical connections based on which services exist
         # Build a mapping from service_type to list of services (supports de-grouped services)
