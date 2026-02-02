@@ -126,13 +126,15 @@ class TerraformParser:
         infrastructure_path: str,
         icons_path: Optional[str] = None,
         use_terraform_graph: bool = False,
-        use_terraform_state: bool = False
+        use_terraform_state: bool = False,
+        state_file: Optional[str] = None
     ):
         self.infrastructure_path = Path(infrastructure_path)
         self.icons_path = Path(icons_path) if icons_path else None
         self._parsed_modules: Dict[str, ParseResult] = {}
         self.use_terraform_graph = use_terraform_graph
         self.use_terraform_state = use_terraform_state
+        self.state_file = Path(state_file) if state_file else None
         self._graph_result: Optional["TerraformGraphResult"] = None
         self._state_result: Optional["TerraformStateResult"] = None
 
@@ -202,7 +204,7 @@ class TerraformParser:
                 )
 
         if self.use_terraform_state:
-            state_result = runner.run_show_json()
+            state_result = runner.run_show_json(state_file=self.state_file)
             if state_result:
                 self._state_result = state_result
                 self._enrich_resources_with_state(result, state_result)

@@ -87,9 +87,12 @@ Examples:
     )
 
     parser.add_argument(
-        '--use-state',
-        action='store_true',
-        help='Use terraform show -json for actual resource values (requires existing state)'
+        '--use-state', '-s',
+        nargs='?',
+        const=True,
+        default=False,
+        metavar='FILE',
+        help='Use terraform state for actual resource values. Optionally specify a JSON file path (plan.json, state.json). If no file given, auto-discovers in terraform dir or runs terraform show -json.'
     )
 
     args = parser.parse_args()
@@ -145,11 +148,18 @@ Examples:
         if args.verbose:
             print(f"Parsing Terraform files from {parse_path}...")
 
+        # Determine state file path if provided
+        state_file = None
+        if args.use_state and args.use_state is not True:
+            # User provided a specific file path
+            state_file = args.use_state
+
         tf_parser = TerraformParser(
             str(terraform_path),
             str(icons_path) if icons_path else None,
             use_terraform_graph=args.use_graph,
-            use_terraform_state=args.use_state,
+            use_terraform_state=bool(args.use_state),
+            state_file=state_file,
         )
 
         if args.environment:

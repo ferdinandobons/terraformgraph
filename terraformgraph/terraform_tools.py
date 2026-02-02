@@ -117,16 +117,40 @@ class TerraformToolsRunner:
             logger.warning("Error running terraform graph: %s", e)
             return None
 
-    def run_show_json(self) -> Optional[TerraformStateResult]:
+    def run_show_json(self, state_file: Optional[Path] = None) -> Optional[TerraformStateResult]:
         """Run terraform show -json and parse the state output.
 
-        First tries to read from local JSON files (plan.json, state.json, terraform.tfstate.json),
+        If state_file is provided, reads from that file directly.
+        Otherwise, tries to read from local JSON files (plan.json, state.json, terraform.tfstate.json),
         then falls back to running terraform show -json.
+
+        Args:
+            state_file: Optional path to a specific JSON state/plan file.
 
         Returns:
             TerraformStateResult with resources, or None if failed.
         """
-        # First, try to read from local JSON files
+        # If a specific state file is provided, use it directly
+        if state_file is not None:
+            if state_file.exists():
+                try:
+                    with open(state_file, 'r') as f:
+                        json_data = json.load(f)
+                    result = parse_state_json(json_data)
+                    if result and result.resources:
+                        logger.info("Loaded state from %s: %d resources", state_file, len(result.resources))
+                        return result
+                    else:
+                        logger.warning("No resources found in %s", state_file)
+                        return None
+                except Exception as e:
+                    logger.warning("Could not load %s: %s", state_file, e)
+                    return None
+            else:
+                logger.warning("State file not found: %s", state_file)
+                return None
+
+        # Try to read from local JSON files in terraform dir
         json_files = [
             self.terraform_dir / "plan.json",
             self.terraform_dir / "state.json",
