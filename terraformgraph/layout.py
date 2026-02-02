@@ -121,14 +121,17 @@ class LayoutEngine:
         vpc_x = self.config.padding + 50
         vpc_width = self.config.canvas_width - 2 * (self.config.padding + 50)
 
-        # Use dynamic VPC height if vpc_structure exists
-        if aggregated.vpc_structure:
-            vpc_height = self._compute_vpc_height(aggregated.vpc_structure)
-        else:
-            vpc_height = 180
-
         # Filter out 'vpc' itself from vpc_services for positioning
         vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
+
+        # Use dynamic VPC height if vpc_structure exists
+        if aggregated.vpc_structure:
+            vpc_height = self._compute_vpc_height(
+                aggregated.vpc_structure,
+                has_vpc_services=len(vpc_internal) > 0
+            )
+        else:
+            vpc_height = 180
 
         vpc_pos = Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
         vpc_group = ServiceGroup(
@@ -139,26 +142,29 @@ class LayoutEngine:
         )
         groups.append(vpc_group)
 
-        # Position services inside VPC
-        inner_y = y_offset + self.config.group_padding + 30
+        # Position services inside VPC - at the TOP, above AZs
+        services_row_y = y_offset + self.config.group_padding + 30
         if vpc_internal:
             x = self._center_row_start(len(vpc_internal), vpc_x + self.config.group_padding,
                                         vpc_x + vpc_width - self.config.group_padding)
             for service in vpc_internal:
                 positions[service.id] = Position(
-                    x=x, y=inner_y,
+                    x=x, y=services_row_y,
                     width=self.config.icon_size,
                     height=self.config.icon_size
                 )
                 x += self.config.column_spacing
 
-        # Layout VPC structure (AZs and endpoints) if available
+        # Layout VPC structure (AZs and endpoints) BELOW services
         if aggregated.vpc_structure:
+            # AZs start below the services row
+            az_start_y = services_row_y + self.config.icon_size + 50 if vpc_internal else services_row_y
             self._layout_vpc_structure(
                 aggregated.vpc_structure,
                 vpc_pos,
                 positions,
-                groups
+                groups,
+                az_start_y=az_start_y
             )
 
         y_offset += vpc_height + 40
@@ -219,11 +225,12 @@ class LayoutEngine:
         total_items_width = num_items * self.config.icon_size + (num_items - 1) * self.config.icon_spacing
         return min_x + (available_width - total_items_width) / 2
 
-    def _compute_vpc_height(self, vpc_structure: "VPCStructure") -> int:
-        """Compute VPC box height based on subnet count.
+    def _compute_vpc_height(self, vpc_structure: "VPCStructure", has_vpc_services: bool = True) -> int:
+        """Compute VPC box height based on subnet count, services, and endpoints.
 
         Args:
-            vpc_structure: VPCStructure with availability zones and subnets
+            vpc_structure: VPCStructure with availability zones, subnets, and endpoints
+            has_vpc_services: Whether there are VPC services to display (ALB, ECS, etc.)
 
         Returns:
             Height in pixels for the VPC box
@@ -241,23 +248,36 @@ class LayoutEngine:
         az_header_height = 30  # Height for AZ header
         vpc_header_height = 40  # Height for VPC header
         base_padding = 40  # Top and bottom padding
+        services_row_height = 100 if has_vpc_services else 0  # Height for services row
 
-        # Height = VPC header + AZ headers + subnet rows + padding
-        calculated_height = (
+        # Height based on subnets
+        height_for_subnets = (
             vpc_header_height +
+            services_row_height +
             az_header_height +
             (max_subnets * subnet_height) +
             base_padding
         )
 
-        return max(180, calculated_height)
+        # Height based on endpoints (if present)
+        num_endpoints = len(vpc_structure.endpoints) if vpc_structure.endpoints else 0
+        endpoint_spacing = 55
+        height_for_endpoints = (
+            vpc_header_height +
+            services_row_height +
+            (num_endpoints * endpoint_spacing) +
+            base_padding
+        ) if num_endpoints > 0 else 0
+
+        return max(180, height_for_subnets, height_for_endpoints)
 
     def _layout_vpc_structure(
         self,
         vpc_structure: "VPCStructure",
         vpc_pos: Position,
         positions: Dict[str, Position],
-        groups: List[ServiceGroup]
+        groups: List[ServiceGroup],
+        az_start_y: Optional[float] = None
     ) -> None:
         """Layout availability zones and endpoints within VPC.
 
@@ -266,6 +286,7 @@ class LayoutEngine:
             vpc_pos: Position of the VPC container
             positions: Dict to add subnet positions to
             groups: List to add AZ groups to
+            az_start_y: Optional Y position where AZs should start (below services)
         """
         if not vpc_structure:
             return
@@ -276,13 +297,13 @@ class LayoutEngine:
 
         # Calculate AZ dimensions
         az_padding = 15
-        endpoint_width = 80  # Space reserved for endpoints on right
+        endpoint_width = 90  # Space reserved for endpoints on right
         available_width = vpc_pos.width - (2 * az_padding) - endpoint_width
         az_width = (available_width - (num_azs - 1) * az_padding) / num_azs
-        az_height = vpc_pos.height - 60  # Leave room for VPC header
 
         # Layout each AZ
-        az_y = vpc_pos.y + 40  # Below VPC header
+        az_y = az_start_y if az_start_y is not None else vpc_pos.y + 40
+        az_height = (vpc_pos.y + vpc_pos.height - 20) - az_y  # Extend to bottom of VPC
         az_x = vpc_pos.x + az_padding
 
         for az in vpc_structure.availability_zones:
@@ -306,18 +327,21 @@ class LayoutEngine:
 
             az_x += az_width + az_padding
 
-        # Layout VPC endpoints on the right border
+        # Layout VPC endpoints INSIDE the VPC (right column, within border)
         if vpc_structure.endpoints:
-            endpoint_x = vpc_pos.x + vpc_pos.width - 40  # Near right edge
-            endpoint_y = vpc_pos.y + 60  # Below VPC header
-            endpoint_spacing = 50
+            # Position endpoints inside the VPC border, in the reserved space
+            endpoint_box_width = 75
+            endpoint_box_height = 45
+            endpoint_x = vpc_pos.x + vpc_pos.width - endpoint_width + 5  # Inside the reserved space
+            endpoint_y = az_y + 5  # Start at same level as AZs
+            endpoint_spacing = 55  # Spacing between endpoints
 
             for endpoint in vpc_structure.endpoints:
                 positions[endpoint.resource_id] = Position(
                     x=endpoint_x,
                     y=endpoint_y,
-                    width=30,
-                    height=30
+                    width=endpoint_box_width,
+                    height=endpoint_box_height
                 )
                 endpoint_y += endpoint_spacing
 

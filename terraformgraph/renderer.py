@@ -219,34 +219,88 @@ class SVGRenderer:
         pos: Position,
         endpoint_info: "VPCEndpoint"
     ) -> str:
-        """Render a VPC endpoint circle on the VPC border.
+        """Render a VPC endpoint with AWS PrivateLink icon.
 
-        Colors:
-        - gateway: purple
-        - interface: blue
+        Colors for badge:
+        - gateway: green (S3, DynamoDB)
+        - interface: blue (ECR, CloudWatch, etc.)
         """
-        colors = {
-            'gateway': '#9c27b0',  # Purple
-            'interface': '#2196f3',  # Blue
+        # Badge colors by type
+        badge_colors = {
+            'gateway': '#22a06b',   # Green
+            'interface': '#0052cc',  # Blue
         }
+        badge_color = badge_colors.get(endpoint_info.endpoint_type, '#0052cc')
 
-        color = colors.get(endpoint_info.endpoint_type, colors['interface'])
-        cx = pos.x + pos.width / 2
-        cy = pos.y + pos.height / 2
-        radius = min(pos.width, pos.height) / 2
+        # Format service name for display
+        service_display = endpoint_info.service.upper()
+        if '.' in endpoint_info.service:
+            # e.g., "ecr.api" -> "ECR"
+            parts = endpoint_info.service.split('.')
+            service_display = parts[0].upper()
 
-        return f'''
-        <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
-            <circle cx="{cx}" cy="{cy}" r="{radius}"
-                fill="{color}" stroke="white" stroke-width="2"/>
-            <text x="{cx}" y="{cy + 4}"
-                font-family="Arial, sans-serif" font-size="9" fill="white"
-                text-anchor="middle" font-weight="bold">
-                {html.escape(endpoint_info.service[:3].upper())}
-            </text>
-            <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type})</title>
-        </g>
-        '''
+        # Type indicator
+        type_label = "GW" if endpoint_info.endpoint_type == "gateway" else "IF"
+
+        # Try to get AWS PrivateLink icon
+        icon_svg = self.icon_mapper.get_icon_svg('aws_vpc_endpoint', 48)
+
+        # Box dimensions
+        box_width = pos.width
+        box_height = pos.height
+
+        if icon_svg:
+            icon_content = self._extract_svg_content(icon_svg)
+            return f'''
+            <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
+                <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="6" ry="6"
+                    filter="url(#shadow)"/>
+                <svg x="{pos.x + 4}" y="{pos.y + 4}" width="32" height="32" viewBox="0 0 64 64">
+                    {icon_content}
+                </svg>
+                <text x="{pos.x + 40}" y="{pos.y + 18}"
+                    font-family="Arial, sans-serif" font-size="9" fill="#333"
+                    font-weight="bold">{html.escape(service_display)}</text>
+                <text x="{pos.x + 40}" y="{pos.y + 30}"
+                    font-family="Arial, sans-serif" font-size="8" fill="#666">
+                    {type_label}
+                </text>
+                <circle cx="{pos.x + box_width - 10}" cy="{pos.y + 10}" r="7"
+                    fill="{badge_color}"/>
+                <text x="{pos.x + box_width - 10}" y="{pos.y + 13}"
+                    font-family="Arial, sans-serif" font-size="6" fill="white"
+                    text-anchor="middle" font-weight="bold">{type_label}</text>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint)</title>
+            </g>
+            '''
+        else:
+            # Fallback to colored box if icon not available
+            fallback_colors = {
+                'gateway': ('#22a06b', '#e3fcef'),
+                'interface': ('#0052cc', '#deebff'),
+            }
+            border_color, bg_color = fallback_colors.get(endpoint_info.endpoint_type, fallback_colors['interface'])
+            cx = pos.x + box_width / 2
+            cy = pos.y + box_height / 2
+
+            return f'''
+            <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
+                <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
+                    fill="{bg_color}" stroke="{border_color}" stroke-width="2" rx="6" ry="6"/>
+                <text x="{cx}" y="{cy - 2}"
+                    font-family="Arial, sans-serif" font-size="10" fill="{border_color}"
+                    text-anchor="middle" font-weight="bold">
+                    {html.escape(service_display)}
+                </text>
+                <text x="{cx}" y="{cy + 12}"
+                    font-family="Arial, sans-serif" font-size="8" fill="{border_color}"
+                    text-anchor="middle" opacity="0.7">
+                    {type_label}
+                </text>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint)</title>
+            </g>
+            '''
 
     def _render_service(self, service: LogicalService, pos: Position) -> str:
         """Render a draggable logical service with its icon."""

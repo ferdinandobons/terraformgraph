@@ -8,7 +8,7 @@ for cleaner architecture diagrams.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from .config_loader import ConfigLoader
 from .parser import ParseResult, TerraformResource
@@ -145,6 +145,12 @@ class ResourceAggregator:
         """
         result = AggregatedResult()
 
+        # Initialize variable resolver if terraform_dir is provided
+        resolver = None
+        if terraform_dir is not None:
+            from .variable_resolver import VariableResolver
+            resolver = VariableResolver(terraform_dir)
+
         # Group resources by aggregation rule
         rule_resources: Dict[str, List[TerraformResource]] = {}
         unmatched: List[TerraformResource] = []
@@ -165,9 +171,44 @@ class ResourceAggregator:
             if primary_count == 0:
                 continue  # Skip if no primary resources
 
+            # Get actual resource name from primary resource if available
+            display_name = rule['display_name']
+            primary_resources = [r for r in resources if r.resource_type in rule['primary']]
+            if primary_resources:
+                first_resource = primary_resources[0]
+                # Try to get name from attributes or use resource_name
+                attr_name = first_resource.attributes.get('name', '')
+                fallback_name = first_resource.resource_name
+
+                # If attribute name contains unresolved variables, use resource_name
+                if isinstance(attr_name, str) and attr_name:
+                    # Resolve any variable interpolations
+                    if resolver:
+                        resolved_name = resolver.resolve(attr_name)
+                        # If still contains ${, fall back to resource name
+                        if '${' in resolved_name:
+                            display_name = fallback_name
+                        else:
+                            display_name = resolved_name
+                    else:
+                        # If it contains ${, use resource_name, else use attr_name
+                        if '${' in attr_name:
+                            display_name = fallback_name
+                        else:
+                            display_name = attr_name
+                else:
+                    display_name = fallback_name
+
+                # Clean up underscore-based names to be more readable
+                display_name = display_name.replace('_', ' ').title()
+
+                # Truncate long names
+                if len(display_name) > 20:
+                    display_name = display_name[:17] + "..."
+
             service = LogicalService(
                 service_type=rule_name,
-                name=rule['display_name'],
+                name=display_name,
                 icon_resource_type=rule['icon'],
                 resources=resources,
                 count=primary_count,
@@ -181,23 +222,23 @@ class ResourceAggregator:
                 result.global_services.append(service)
 
         # Create logical connections based on which services exist
-        existing_services = {s.service_type for s in result.services}
+        # Build a mapping from service_type to actual service object
+        service_by_type = {s.service_type: s for s in result.services}
         for conn in self._logical_connections:
             source = conn.get("source", "")
             target = conn.get("target", "")
-            if source in existing_services and target in existing_services:
+            if source in service_by_type and target in service_by_type:
+                source_service = service_by_type[source]
+                target_service = service_by_type[target]
                 result.connections.append(LogicalConnection(
-                    source_id=f"{source}.{self._aggregation_rules[source]['display_name']}",
-                    target_id=f"{target}.{self._aggregation_rules[target]['display_name']}",
+                    source_id=source_service.id,
+                    target_id=target_service.id,
                     label=conn.get("label", ""),
                     connection_type=conn.get("type", "default"),
                 ))
 
-        # Build VPC structure if terraform_dir is provided
-        if terraform_dir is not None:
-            from .variable_resolver import VariableResolver
-
-            resolver = VariableResolver(terraform_dir)
+        # Build VPC structure if resolver is available
+        if resolver is not None:
             vpc_builder = VPCStructureBuilder()
             result.vpc_structure = vpc_builder.build(
                 parse_result.resources, resolver=resolver
@@ -223,9 +264,9 @@ class VPCStructureBuilder:
 
     # Patterns for detecting subnet type from name/tags
     SUBNET_TYPE_PATTERNS: Dict[str, List[str]] = {
-        "public": ["public", "pub", "external", "ext", "dmz"],
-        "private": ["private", "priv", "internal", "int", "app"],
-        "database": ["database", "db", "rds", "data", "storage"],
+        "public": ["public", "pub", "external", "ext", "dmz", "bastion"],
+        "private": ["private", "priv", "internal", "int", "app", "compute", "worker", "backend", "application"],
+        "database": ["database", "db", "rds", "data", "storage", "persistence"],
     }
 
     def __init__(self) -> None:
@@ -233,12 +274,13 @@ class VPCStructureBuilder:
         pass
 
     def _detect_availability_zone(
-        self, resource: TerraformResource
+        self, resource: TerraformResource, sequential_index: Optional[int] = None
     ) -> Optional[str]:
         """Detect availability zone from resource attributes or name patterns.
 
         Args:
             resource: TerraformResource to analyze
+            sequential_index: Optional index for sequential AZ naming when patterns fail
 
         Returns:
             Detected AZ name or None if not detectable
@@ -246,12 +288,15 @@ class VPCStructureBuilder:
         # First check for explicit availability_zone attribute
         az = resource.attributes.get("availability_zone")
         if az and isinstance(az, str):
-            return az
+            # Check if it's an unresolved variable (contains ${)
+            if "${" not in az:
+                return az
+            # Fall through to pattern detection if unresolved
 
         # Try to detect from resource name
         name = resource.attributes.get("name", resource.resource_name)
         if not isinstance(name, str):
-            return None
+            name = resource.resource_name
 
         name_lower = name.lower()
 
@@ -261,6 +306,12 @@ class VPCStructureBuilder:
                 suffix = extractor(match)
                 # Return a placeholder AZ name with the detected suffix
                 return f"detected-{suffix}"
+
+        # If we have a sequential index (for count-based resources), use it
+        if sequential_index is not None:
+            az_letters = "abcdef"
+            if sequential_index < len(az_letters):
+                return f"detected-{az_letters[sequential_index]}"
 
         return None
 
@@ -363,6 +414,41 @@ class VPCStructureBuilder:
 
         return az_name
 
+    def _extract_az_suffix(self, resource_name: str) -> Optional[str]:
+        """Extract AZ suffix from subnet resource name.
+
+        This extracts the numeric or letter suffix that indicates which AZ
+        a subnet belongs to, enabling realistic grouping where each AZ
+        contains all subnet types.
+
+        Args:
+            resource_name: The Terraform resource name (e.g., 'public_subnet_1')
+
+        Returns:
+            AZ suffix (e.g., '1', 'a', '1a') or None if not detectable
+
+        Examples:
+            'public-subnet-1' -> '1'
+            'compute-subnet-a' -> 'a'
+            'database_subnet_1a' -> '1a'
+            'my-private-subnet' -> None
+        """
+        name_lower = resource_name.lower()
+
+        # Pattern priority: more specific patterns first
+        patterns = [
+            r"[-_](\d[a-f])$",  # ends with -1a, -1b, _2a
+            r"[-_](\d+)$",      # ends with -1, -2, _3
+            r"[-_]([a-f])$",    # ends with -a, -b, _c
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, name_lower)
+            if match:
+                return match.group(1)
+
+        return None
+
     def build(
         self,
         resources: List[TerraformResource],
@@ -395,39 +481,123 @@ class VPCStructureBuilder:
         if resolver and isinstance(vpc_name, str):
             vpc_name = resolver.resolve(vpc_name)
 
-        # Collect subnets by AZ
-        az_subnets: Dict[str, List[Subnet]] = {}
-        for r in resources:
-            if r.resource_type != "aws_subnet":
-                continue
+        # Collect subnets and group by AZ for realistic representation
+        # In AWS, each AZ contains all subnet types (public, private, database)
+        subnet_resources = [r for r in resources if r.resource_type == "aws_subnet"]
 
-            az = self._detect_availability_zone(r)
-            if not az:
-                continue
+        # First pass: collect all subnets with their AZ info
+        all_subnets: List[Tuple[TerraformResource, Subnet, Optional[str]]] = []
+        explicit_azs: Set[str] = set()
 
+        for r in subnet_resources:
+            # Get subnet name
             subnet_name = r.attributes.get("name", r.resource_name)
             if resolver and isinstance(subnet_name, str):
                 subnet_name = resolver.resolve(subnet_name)
 
+            subnet_type = self._detect_subnet_type(r)
+
+            # Try to get explicit AZ from attributes (e.g., "us-east-1a")
+            explicit_az = self._detect_availability_zone(r)
+
+            # Try to extract suffix from resource name (e.g., "-a", "-1")
+            suffix = self._extract_az_suffix(r.resource_name)
+
+            # Determine AZ key for grouping
+            if explicit_az and not explicit_az.startswith("detected-"):
+                az_key = explicit_az
+                explicit_azs.add(explicit_az)
+            elif suffix:
+                az_key = f"detected-{suffix}"
+            else:
+                az_key = None  # Will be assigned later
+
             subnet = Subnet(
                 resource_id=r.full_id,
                 name=subnet_name,
-                subnet_type=self._detect_subnet_type(r),
-                availability_zone=az,
+                subnet_type=subnet_type,
+                availability_zone=az_key or "unknown",
                 cidr_block=r.attributes.get("cidr_block"),
             )
 
-            az_subnets.setdefault(az, []).append(subnet)
+            all_subnets.append((r, subnet, az_key))
 
-        # Build AvailabilityZone objects
+        # Determine the number of AZs
+        if explicit_azs:
+            # Use explicit AZs as the primary structure
+            az_names = sorted(explicit_azs)
+        else:
+            # Determine count from resource count or number of subnets
+            num_azs = 1
+            for r, _, _ in all_subnets:
+                if r.count and r.count > num_azs:
+                    num_azs = r.count
+
+            # If no count, use number of distinct detected AZs or subnet count
+            if num_azs == 1:
+                detected_azs = set(az_key for _, _, az_key in all_subnets if az_key and az_key.startswith("detected-"))
+                if detected_azs:
+                    num_azs = len(detected_azs)
+                else:
+                    # Count subnets by type and use max
+                    type_counts: Dict[str, int] = {}
+                    for _, subnet, _ in all_subnets:
+                        type_counts[subnet.subnet_type] = type_counts.get(subnet.subnet_type, 0) + 1
+                    if type_counts:
+                        num_azs = max(type_counts.values())
+
+            az_letters = "abcdef"
+            az_names = [f"detected-{az_letters[i % len(az_letters)]}" for i in range(num_azs)]
+
+        # Create AZ objects
+        az_map: Dict[str, AvailabilityZone] = {}
         availability_zones = []
-        for az_name, subnets in sorted(az_subnets.items()):
+        for az_name in az_names:
             az = AvailabilityZone(
                 name=az_name,
                 short_name=self._get_az_short_name(az_name),
-                subnets=subnets,
+                subnets=[],
             )
+            az_map[az_name] = az
             availability_zones.append(az)
+
+        # Distribute subnets to AZs
+        type_order = {"public": 0, "private": 1, "database": 2, "unknown": 3}
+        unassigned: List[Subnet] = []
+
+        for r, subnet, az_key in sorted(all_subnets, key=lambda x: (type_order.get(x[1].subnet_type, 3), x[1].name)):
+            if az_key and az_key in az_map:
+                az_map[az_key].subnets.append(subnet)
+            elif az_key and az_key.startswith("detected-"):
+                # Try to match by suffix
+                suffix = az_key.replace("detected-", "")
+                matched = False
+                for az in availability_zones:
+                    if az.short_name == suffix or suffix in az.short_name:
+                        az.subnets.append(subnet)
+                        matched = True
+                        break
+                if not matched:
+                    unassigned.append(subnet)
+            else:
+                unassigned.append(subnet)
+
+        # Distribute unassigned subnets round-robin by type
+        if unassigned and availability_zones:
+            # Group unassigned by type
+            unassigned_by_type: Dict[str, List[Subnet]] = {}
+            for subnet in unassigned:
+                unassigned_by_type.setdefault(subnet.subnet_type, []).append(subnet)
+
+            # Distribute each type across AZs
+            az_letters = "abcdef"
+            for subnet_type in sorted(unassigned_by_type.keys(), key=lambda t: type_order.get(t, 3)):
+                for idx, subnet in enumerate(unassigned_by_type[subnet_type]):
+                    az_idx = idx % len(availability_zones)
+                    # Add AZ indicator to name if distributing multiple of same type
+                    if len(unassigned_by_type[subnet_type]) > 1:
+                        subnet.name = f"{subnet.name} ({az_letters[az_idx]})"
+                    availability_zones[az_idx].subnets.append(subnet)
 
         # Collect VPC endpoints
         endpoints = []
