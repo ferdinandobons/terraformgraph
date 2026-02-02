@@ -475,6 +475,14 @@ class LayoutEngine:
         available_width = vpc_pos.width - (2 * az_padding) - endpoint_width
         az_width = (available_width - (num_azs - 1) * az_padding) / num_azs
 
+        # Build global mapping from AWS subnet IDs to resource IDs
+        # This is needed because ALBs can reference subnets from multiple AZs
+        aws_id_to_resource_id: Dict[str, str] = {}
+        for az in vpc_structure.availability_zones:
+            for subnet in az.subnets:
+                if subnet.aws_id:
+                    aws_id_to_resource_id[subnet.aws_id] = subnet.resource_id
+
         # Layout each AZ
         az_y = az_start_y if az_start_y is not None else vpc_pos.y + 40
         az_height = (vpc_pos.y + vpc_pos.height - 20) - az_y  # Extend to bottom of VPC
@@ -497,7 +505,7 @@ class LayoutEngine:
             groups.append(az_group)
 
             # Layout subnets inside this AZ
-            self._layout_subnets(az, az_pos, positions, services_with_subnets)
+            self._layout_subnets(az, az_pos, positions, services_with_subnets, aws_id_to_resource_id)
 
             az_x += az_width + az_padding
 
@@ -525,6 +533,7 @@ class LayoutEngine:
         az_pos: Position,
         positions: Dict[str, Position],
         services_with_subnets: Optional[List[LogicalService]] = None,
+        aws_id_to_resource_id: Optional[Dict[str, str]] = None,
     ) -> None:
         """Layout subnets inside an availability zone.
 
@@ -533,6 +542,7 @@ class LayoutEngine:
             az_pos: Position of the AZ container
             positions: Dict to add subnet positions to
             services_with_subnets: Services that should be placed inside their subnets
+            aws_id_to_resource_id: Mapping from AWS subnet IDs to resource IDs
         """
         if not az.subnets:
             return
@@ -543,12 +553,25 @@ class LayoutEngine:
 
         subnet_y = az_pos.y + 30  # Below AZ header
 
+        # Use provided mapping or empty dict
+        if aws_id_to_resource_id is None:
+            aws_id_to_resource_id = {}
+
         # Build mapping: subnet_resource_id -> list of services
         services_by_subnet: Dict[str, List[LogicalService]] = {}
         if services_with_subnets:
             for service in services_with_subnets:
                 for subnet_id in service.subnet_ids:
-                    services_by_subnet.setdefault(subnet_id, []).append(service)
+                    # Handle _state_subnet: prefixed IDs (from Terraform state)
+                    if subnet_id.startswith("_state_subnet:"):
+                        aws_id = subnet_id[len("_state_subnet:"):]
+                        # Map AWS ID to resource ID if we have it
+                        if aws_id in aws_id_to_resource_id:
+                            resource_id = aws_id_to_resource_id[aws_id]
+                            services_by_subnet.setdefault(resource_id, []).append(service)
+                    else:
+                        # Direct resource ID reference (e.g., aws_subnet.public)
+                        services_by_subnet.setdefault(subnet_id, []).append(service)
 
         for subnet in az.subnets:
             # Check if any services belong to this subnet

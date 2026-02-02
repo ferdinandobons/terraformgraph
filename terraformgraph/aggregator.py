@@ -30,6 +30,7 @@ class Subnet:
     subnet_type: str  # 'public', 'private', 'database', 'unknown'
     availability_zone: str
     cidr_block: Optional[str] = None
+    aws_id: Optional[str] = None  # AWS subnet ID (e.g., 'subnet-xxx') from state
 
 
 @dataclass
@@ -172,6 +173,13 @@ class ResourceAggregator:
                 subnet_id_list = state_values.get("subnet_ids")
                 if subnet_id_list and isinstance(subnet_id_list, list):
                     for sid in subnet_id_list:
+                        if isinstance(sid, str):
+                            subnet_ids.add(f"_state_subnet:{sid}")
+
+                # Check for subnets (list) - used by ALB/NLB resources
+                subnets_list = state_values.get("subnets")
+                if subnets_list and isinstance(subnets_list, list):
+                    for sid in subnets_list:
                         if isinstance(sid, str):
                             subnet_ids.add(f"_state_subnet:{sid}")
 
@@ -628,12 +636,18 @@ class VPCStructureBuilder:
             else:
                 az_key = None  # Will be assigned later
 
+            # Extract AWS subnet ID from state if available
+            aws_subnet_id = None
+            if r.full_id in state_index:
+                aws_subnet_id = state_index[r.full_id].get("id")
+
             subnet = Subnet(
                 resource_id=r.full_id,
                 name=subnet_name,
                 subnet_type=subnet_type,
                 availability_zone=az_key or "unknown",
                 cidr_block=r.attributes.get("cidr_block"),
+                aws_id=aws_subnet_id,
             )
 
             all_subnets.append((r, subnet, az_key))
