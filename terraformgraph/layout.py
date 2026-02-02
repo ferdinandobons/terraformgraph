@@ -512,11 +512,11 @@ class LayoutEngine:
         # Layout VPC endpoints INSIDE the VPC (right column, within border)
         if vpc_structure.endpoints:
             # Position endpoints inside the VPC border, in the reserved space
-            endpoint_box_width = 75
-            endpoint_box_height = 45
-            endpoint_x = vpc_pos.x + vpc_pos.width - endpoint_width + 5  # Inside the reserved space
+            endpoint_box_width = 80
+            endpoint_box_height = 65
+            endpoint_x = vpc_pos.x + vpc_pos.width - endpoint_width + 3  # Inside the reserved space
             endpoint_y = az_y + 5  # Start at same level as AZs
-            endpoint_spacing = 55  # Spacing between endpoints
+            endpoint_spacing = 72  # Spacing between endpoints
 
             for endpoint in vpc_structure.endpoints:
                 positions[endpoint.resource_id] = Position(
