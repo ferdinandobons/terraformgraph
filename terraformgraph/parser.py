@@ -8,9 +8,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import hcl2
+
+if TYPE_CHECKING:
+    from terraformgraph.variable_resolver import VariableResolver
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,23 @@ class TerraformResource:
         if isinstance(name, str) and '${' not in name:
             return name
         return self.resource_name
+
+    def get_resolved_display_name(self, resolver: "VariableResolver") -> str:
+        """Get display name with interpolations resolved and truncated.
+
+        Args:
+            resolver: VariableResolver instance for resolving interpolations
+
+        Returns:
+            Resolved and truncated display name
+        """
+        from terraformgraph.variable_resolver import VariableResolver
+
+        name = self.attributes.get('name', self.resource_name)
+        if isinstance(name, str):
+            resolved_name = resolver.resolve(name)
+            return VariableResolver.truncate_name(resolved_name)
+        return VariableResolver.truncate_name(self.resource_name)
 
 
 @dataclass

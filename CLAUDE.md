@@ -1,0 +1,1 @@
+Dopo aver generato del codice, analizzalo e ispezionalo in modo critico per determinare errori logici, bug, migliorare la code quality, e ottimizzare le prestazioni. Fornisci suggerimenti specifici su come migliorare il codice, inclusi esempi di refactoring se necessario.

@@ -23,7 +23,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .aggregator import aggregate_resources
+from .aggregator import ResourceAggregator
 from .icons import IconMapper
 from .layout import LayoutConfig, LayoutEngine
 from .parser import TerraformParser
@@ -148,13 +148,21 @@ Examples:
         if args.verbose:
             print("Aggregating into logical services...")
 
-        aggregated = aggregate_resources(parse_result)
+        aggregator = ResourceAggregator()
+        aggregated = aggregator.aggregate(parse_result, terraform_dir=parse_path)
 
         if args.verbose:
             print(f"Created {len(aggregated.services)} logical services:")
             for service in aggregated.services:
                 print(f"  - {service.name}: {len(service.resources)} resources (count: {service.count})")
             print(f"Created {len(aggregated.connections)} logical connections")
+            if aggregated.vpc_structure:
+                vpc = aggregated.vpc_structure
+                print(f"VPC Structure: {vpc.name}")
+                print(f"  - {len(vpc.availability_zones)} Availability Zones")
+                for az in vpc.availability_zones:
+                    print(f"    - {az.name}: {len(az.subnets)} subnets")
+                print(f"  - {len(vpc.endpoints)} VPC Endpoints")
 
         # Setup layout
         config = LayoutConfig()

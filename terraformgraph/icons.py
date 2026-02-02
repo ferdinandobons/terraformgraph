@@ -22,7 +22,7 @@ TERRAFORM_TO_ICON: Dict[str, Tuple[str, str]] = {
     'aws_route': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
     'aws_route_table_association': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
     'aws_eip': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
-    'aws_vpc_endpoint': ('Arch_Networking-Content-Delivery', 'Arch_AWS-PrivateLink'),
+    'aws_vpc_endpoint': ('Res_Networking-Content-Delivery', 'Res_Amazon-VPC_Endpoints'),
     'aws_vpc_peering_connection': ('Arch_Networking-Content-Delivery', 'Arch_AWS-Transit-Gateway'),
     'aws_transit_gateway': ('Arch_Networking-Content-Delivery', 'Arch_AWS-Transit-Gateway'),
     'aws_transit_gateway_attachment': ('Arch_Networking-Content-Delivery', 'Arch_AWS-Transit-Gateway'),
