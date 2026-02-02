@@ -71,6 +71,7 @@ class LogicalService:
     count: int = 1  # How many instances (e.g., 24 SQS queues)
     is_vpc_resource: bool = False
     attributes: Dict[str, str] = field(default_factory=dict)
+    subnet_ids: List[str] = field(default_factory=list)  # Subnet resource IDs this service belongs to
 
     @property
     def id(self) -> str:
@@ -129,6 +130,95 @@ class ResourceAggregator:
                 self._type_to_rule[res_type] = rule_name
             for res_type in rule['aggregate']:
                 self._type_to_rule[res_type] = rule_name
+
+    def _extract_subnet_ids(
+        self,
+        resources: List[TerraformResource],
+        state_result: Optional["TerraformStateResult"] = None,
+    ) -> List[str]:
+        """Extract unique subnet IDs from a list of resources.
+
+        Checks both HCL attributes and terraform state for subnet information.
+
+        Args:
+            resources: List of TerraformResource objects
+            state_result: Optional terraform state with resolved values
+
+        Returns:
+            List of unique subnet resource IDs (e.g., ['aws_subnet.public', 'aws_subnet.private'])
+        """
+        subnet_ids: Set[str] = set()
+
+        # Build state index if available
+        state_index: Dict[str, Dict[str, Any]] = {}
+        if state_result:
+            from .terraform_tools import map_state_to_resource_id
+            for state_res in state_result.resources:
+                resource_id = map_state_to_resource_id(state_res.address)
+                state_index[resource_id] = state_res.values
+
+        for resource in resources:
+            # Check state values first (more accurate)
+            if resource.full_id in state_index:
+                state_values = state_index[resource.full_id]
+                # Check for subnet_id (single)
+                subnet_id = state_values.get("subnet_id")
+                if subnet_id and isinstance(subnet_id, str):
+                    # State contains actual subnet ID (vpc-xxx), need to map back
+                    # For now, store the raw value - we'll match by ID later
+                    subnet_ids.add(f"_state_subnet:{subnet_id}")
+
+                # Check for subnet_ids (list)
+                subnet_id_list = state_values.get("subnet_ids")
+                if subnet_id_list and isinstance(subnet_id_list, list):
+                    for sid in subnet_id_list:
+                        if isinstance(sid, str):
+                            subnet_ids.add(f"_state_subnet:{sid}")
+
+            # Check HCL attributes for references like aws_subnet.public.id
+            # Search in common attribute names and nested structures
+            import re
+            self._extract_subnet_refs_from_attrs(resource.attributes, subnet_ids)
+
+        return list(subnet_ids)
+
+    def _extract_subnet_refs_from_attrs(
+        self,
+        attrs: Any,
+        subnet_ids: Set[str],
+        depth: int = 0,
+    ) -> None:
+        """Recursively extract subnet references from attributes.
+
+        Searches through nested dicts and lists for aws_subnet references.
+
+        Args:
+            attrs: Attribute value (dict, list, or string)
+            subnet_ids: Set to add found subnet IDs to
+            depth: Current recursion depth (max 5 to prevent infinite loops)
+        """
+        import re
+
+        if depth > 5:
+            return
+
+        if isinstance(attrs, dict):
+            # Check specific keys that commonly contain subnet info
+            for key in ("subnet_id", "subnet_ids", "subnets", "network_configuration"):
+                if key in attrs:
+                    self._extract_subnet_refs_from_attrs(attrs[key], subnet_ids, depth + 1)
+            # Also check all values for nested structures
+            for value in attrs.values():
+                if isinstance(value, (dict, list)):
+                    self._extract_subnet_refs_from_attrs(value, subnet_ids, depth + 1)
+        elif isinstance(attrs, list):
+            for item in attrs:
+                self._extract_subnet_refs_from_attrs(item, subnet_ids, depth + 1)
+        elif isinstance(attrs, str):
+            # Look for aws_subnet.name references
+            for match in re.finditer(r'aws_subnet\.(\w+)', attrs):
+                subnet_name = match.group(1)
+                subnet_ids.add(f"aws_subnet.{subnet_name}")
 
     def aggregate(
         self,
@@ -208,6 +298,9 @@ class ResourceAggregator:
                 if len(display_name) > 20:
                     display_name = display_name[:17] + "..."
 
+            # Extract subnet_ids from resources
+            subnet_ids = self._extract_subnet_ids(resources, state_result)
+
             service = LogicalService(
                 service_type=rule_name,
                 name=display_name,
@@ -215,6 +308,7 @@ class ResourceAggregator:
                 resources=resources,
                 count=primary_count,
                 is_vpc_resource=rule['is_vpc'],
+                subnet_ids=subnet_ids,
             )
 
             result.services.append(service)

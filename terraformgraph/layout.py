@@ -124,11 +124,16 @@ class LayoutEngine:
         # Filter out 'vpc' itself from vpc_services for positioning
         vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
 
+        # Separate services: those with subnet_ids go inside subnets, others in top row
+        services_with_subnets = [s for s in vpc_internal if s.subnet_ids]
+        services_without_subnets = [s for s in vpc_internal if not s.subnet_ids]
+
         # Use dynamic VPC height if vpc_structure exists
         if aggregated.vpc_structure:
             vpc_height = self._compute_vpc_height(
                 aggregated.vpc_structure,
-                has_vpc_services=len(vpc_internal) > 0
+                has_vpc_services=len(services_without_subnets) > 0,
+                has_services_in_subnets=len(services_with_subnets) > 0,
             )
         else:
             vpc_height = 180
@@ -142,12 +147,12 @@ class LayoutEngine:
         )
         groups.append(vpc_group)
 
-        # Position services inside VPC - at the TOP, above AZs
+        # Position services WITHOUT subnet_ids at the TOP, above AZs
         services_row_y = y_offset + self.config.group_padding + 30
-        if vpc_internal:
-            x = self._center_row_start(len(vpc_internal), vpc_x + self.config.group_padding,
+        if services_without_subnets:
+            x = self._center_row_start(len(services_without_subnets), vpc_x + self.config.group_padding,
                                         vpc_x + vpc_width - self.config.group_padding)
-            for service in vpc_internal:
+            for service in services_without_subnets:
                 positions[service.id] = Position(
                     x=x, y=services_row_y,
                     width=self.config.icon_size,
@@ -158,13 +163,14 @@ class LayoutEngine:
         # Layout VPC structure (AZs and endpoints) BELOW services
         if aggregated.vpc_structure:
             # AZs start below the services row
-            az_start_y = services_row_y + self.config.icon_size + 50 if vpc_internal else services_row_y
+            az_start_y = services_row_y + self.config.icon_size + 50 if services_without_subnets else services_row_y
             self._layout_vpc_structure(
                 aggregated.vpc_structure,
                 vpc_pos,
                 positions,
                 groups,
-                az_start_y=az_start_y
+                az_start_y=az_start_y,
+                services_with_subnets=services_with_subnets,
             )
 
         y_offset += vpc_height + 40
@@ -225,12 +231,18 @@ class LayoutEngine:
         total_items_width = num_items * self.config.icon_size + (num_items - 1) * self.config.icon_spacing
         return min_x + (available_width - total_items_width) / 2
 
-    def _compute_vpc_height(self, vpc_structure: "VPCStructure", has_vpc_services: bool = True) -> int:
+    def _compute_vpc_height(
+        self,
+        vpc_structure: "VPCStructure",
+        has_vpc_services: bool = True,
+        has_services_in_subnets: bool = False,
+    ) -> int:
         """Compute VPC box height based on subnet count, services, and endpoints.
 
         Args:
             vpc_structure: VPCStructure with availability zones, subnets, and endpoints
-            has_vpc_services: Whether there are VPC services to display (ALB, ECS, etc.)
+            has_vpc_services: Whether there are VPC services to display in top row
+            has_services_in_subnets: Whether there are services positioned inside subnets
 
         Returns:
             Height in pixels for the VPC box
@@ -244,7 +256,8 @@ class LayoutEngine:
             max_subnets = max(max_subnets, len(az.subnets))
 
         # Calculate height: base height + per-subnet height
-        subnet_height = 50  # Height per subnet row
+        # Increase subnet height if services are inside
+        subnet_height = 85 if has_services_in_subnets else 50
         az_header_height = 30  # Height for AZ header
         vpc_header_height = 40  # Height for VPC header
         base_padding = 40  # Top and bottom padding
@@ -277,7 +290,8 @@ class LayoutEngine:
         vpc_pos: Position,
         positions: Dict[str, Position],
         groups: List[ServiceGroup],
-        az_start_y: Optional[float] = None
+        az_start_y: Optional[float] = None,
+        services_with_subnets: Optional[List[LogicalService]] = None,
     ) -> None:
         """Layout availability zones and endpoints within VPC.
 
@@ -287,6 +301,7 @@ class LayoutEngine:
             positions: Dict to add subnet positions to
             groups: List to add AZ groups to
             az_start_y: Optional Y position where AZs should start (below services)
+            services_with_subnets: Services that should be placed inside their subnets
         """
         if not vpc_structure:
             return
@@ -323,7 +338,7 @@ class LayoutEngine:
             groups.append(az_group)
 
             # Layout subnets inside this AZ
-            self._layout_subnets(az, az_pos, positions)
+            self._layout_subnets(az, az_pos, positions, services_with_subnets)
 
             az_x += az_width + az_padding
 
@@ -349,7 +364,8 @@ class LayoutEngine:
         self,
         az: "AvailabilityZone",
         az_pos: Position,
-        positions: Dict[str, Position]
+        positions: Dict[str, Position],
+        services_with_subnets: Optional[List[LogicalService]] = None,
     ) -> None:
         """Layout subnets inside an availability zone.
 
@@ -357,6 +373,7 @@ class LayoutEngine:
             az: AvailabilityZone containing subnets
             az_pos: Position of the AZ container
             positions: Dict to add subnet positions to
+            services_with_subnets: Services that should be placed inside their subnets
         """
         if not az.subnets:
             return
@@ -367,14 +384,46 @@ class LayoutEngine:
 
         subnet_y = az_pos.y + 30  # Below AZ header
 
+        # Build mapping: subnet_resource_id -> list of services
+        services_by_subnet: Dict[str, List[LogicalService]] = {}
+        if services_with_subnets:
+            for service in services_with_subnets:
+                for subnet_id in service.subnet_ids:
+                    services_by_subnet.setdefault(subnet_id, []).append(service)
+
         for subnet in az.subnets:
+            # Check if any services belong to this subnet
+            subnet_services = services_by_subnet.get(subnet.resource_id, [])
+
+            # Increase subnet height if it contains services
+            actual_subnet_height = subnet_height
+            if subnet_services:
+                actual_subnet_height = max(subnet_height, self.config.icon_size + 20)
+
             positions[subnet.resource_id] = Position(
                 x=az_pos.x + subnet_padding,
                 y=subnet_y,
                 width=subnet_width,
-                height=subnet_height
+                height=actual_subnet_height
             )
-            subnet_y += subnet_height + subnet_padding
+
+            # Position services inside this subnet
+            if subnet_services:
+                service_x = az_pos.x + subnet_padding + 10
+                service_y = subnet_y + (actual_subnet_height - self.config.icon_size) / 2
+
+                for service in subnet_services:
+                    # Only position if not already positioned (avoid duplicates)
+                    if service.id not in positions:
+                        positions[service.id] = Position(
+                            x=service_x,
+                            y=service_y,
+                            width=self.config.icon_size,
+                            height=self.config.icon_size
+                        )
+                        service_x += self.config.icon_size + 20
+
+            subnet_y += actual_subnet_height + subnet_padding
 
     def compute_connection_path(
         self,
