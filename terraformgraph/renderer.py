@@ -235,7 +235,7 @@ class SVGRenderer:
         pos: Position,
         endpoint_info: "VPCEndpoint"
     ) -> str:
-        """Render a VPC endpoint with clean design.
+        """Render a VPC endpoint with AWS icon and service name.
 
         Colors:
         - gateway: green (S3, DynamoDB)
@@ -257,49 +257,65 @@ class SVGRenderer:
         # Type label
         type_label = "Gateway" if endpoint_info.endpoint_type == "gateway" else "Interface"
 
-        # Box dimensions - make it wider to fit content
+        # Box dimensions
         box_width = pos.width
         box_height = pos.height
 
         # Center positions
         cx = pos.x + box_width / 2
 
-        # VPC Endpoint icon (simplified AWS-style)
-        icon_y = pos.y + 8
-        icon_size = 24
+        # Try to get official AWS VPC Endpoints icon
+        icon_svg = self.icon_mapper.get_icon_svg('aws_vpc_endpoint', 48)
+        icon_content = None
 
-        return f'''
-        <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
-            <!-- Background -->
-            <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
-                fill="{bg_color}" stroke="{border_color}" stroke-width="1.5" rx="6" ry="6"
-                filter="url(#shadow)"/>
+        # Check if we got a real icon (not the fallback with "RES" text)
+        if icon_svg and 'Endpoints' in icon_svg:
+            icon_content = self._extract_svg_content(icon_svg)
 
-            <!-- VPC Endpoint icon (simplified) -->
-            <g transform="translate({cx - icon_size/2}, {icon_y})">
-                <rect width="{icon_size}" height="{icon_size}" rx="4" fill="{border_color}" fill-opacity="0.15"/>
-                <path d="M{icon_size*0.25} {icon_size*0.5} L{icon_size*0.45} {icon_size*0.5} M{icon_size*0.55} {icon_size*0.5} L{icon_size*0.75} {icon_size*0.5}"
-                    stroke="{border_color}" stroke-width="2" stroke-linecap="round"/>
-                <circle cx="{icon_size*0.5}" cy="{icon_size*0.5}" r="{icon_size*0.15}" fill="{border_color}"/>
+        if icon_content:
+            # Use official AWS icon
+            icon_size = 32
+            return f'''
+            <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
+                <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
+                    fill="white" stroke="#e0e0e0" stroke-width="1" rx="6" ry="6"
+                    filter="url(#shadow)"/>
+                <svg x="{cx - icon_size/2}" y="{pos.y + 6}" width="{icon_size}" height="{icon_size}" viewBox="0 0 48 48">
+                    {icon_content}
+                </svg>
+                <text x="{cx}" y="{pos.y + 48}"
+                    font-family="Arial, sans-serif" font-size="10" fill="#333"
+                    text-anchor="middle" font-weight="bold">
+                    {html.escape(service_display)}
+                </text>
+                <text x="{cx}" y="{pos.y + 60}"
+                    font-family="Arial, sans-serif" font-size="8" fill="#666"
+                    text-anchor="middle">
+                    {type_label}
+                </text>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
             </g>
-
-            <!-- Service name -->
-            <text x="{cx}" y="{pos.y + 42}"
-                font-family="Arial, sans-serif" font-size="11" fill="{border_color}"
-                text-anchor="middle" font-weight="bold">
-                {html.escape(service_display)}
-            </text>
-
-            <!-- Type label -->
-            <text x="{cx}" y="{pos.y + 54}"
-                font-family="Arial, sans-serif" font-size="9" fill="{border_color}"
-                text-anchor="middle" opacity="0.7">
-                {type_label}
-            </text>
-
-            <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
-        </g>
-        '''
+            '''
+        else:
+            # Fallback: colored box with service name
+            return f'''
+            <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
+                <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
+                    fill="{bg_color}" stroke="{border_color}" stroke-width="1.5" rx="6" ry="6"
+                    filter="url(#shadow)"/>
+                <text x="{cx}" y="{pos.y + box_height/2 - 6}"
+                    font-family="Arial, sans-serif" font-size="11" fill="{border_color}"
+                    text-anchor="middle" font-weight="bold">
+                    {html.escape(service_display)}
+                </text>
+                <text x="{cx}" y="{pos.y + box_height/2 + 8}"
+                    font-family="Arial, sans-serif" font-size="9" fill="{border_color}"
+                    text-anchor="middle" opacity="0.7">
+                    {type_label}
+                </text>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
+            </g>
+            '''
 
     def _render_service(
         self,
