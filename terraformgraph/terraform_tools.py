@@ -120,9 +120,33 @@ class TerraformToolsRunner:
     def run_show_json(self) -> Optional[TerraformStateResult]:
         """Run terraform show -json and parse the state output.
 
+        First tries to read from local JSON files (plan.json, state.json, terraform.tfstate.json),
+        then falls back to running terraform show -json.
+
         Returns:
             TerraformStateResult with resources, or None if failed.
         """
+        # First, try to read from local JSON files
+        json_files = [
+            self.terraform_dir / "plan.json",
+            self.terraform_dir / "state.json",
+            self.terraform_dir / "terraform.tfstate.json",
+        ]
+
+        for json_file in json_files:
+            if json_file.exists():
+                try:
+                    with open(json_file, 'r') as f:
+                        json_data = json.load(f)
+
+                    result = parse_state_json(json_data)
+                    if result and result.resources:
+                        logger.info("Loaded state from %s: %d resources", json_file.name, len(result.resources))
+                        return result
+                except Exception as e:
+                    logger.debug("Could not load %s: %s", json_file.name, e)
+
+        # Fall back to running terraform show -json
         if not self.check_terraform_available():
             logger.warning("Terraform CLI not found in PATH")
             return None
@@ -240,12 +264,12 @@ def parse_dot_graph(dot_content: str) -> TerraformGraphResult:
 
 
 def parse_state_json(json_data: dict) -> TerraformStateResult:
-    """Parse terraform show -json output.
+    """Parse terraform show -json or terraform plan -json output.
 
-    JSON structure:
+    Supports multiple JSON structures:
+
+    1. terraform show -json (state):
         {
-            "format_version": "1.0",
-            "terraform_version": "1.5.0",
             "values": {
                 "root_module": {
                     "resources": [...],
@@ -254,22 +278,59 @@ def parse_state_json(json_data: dict) -> TerraformStateResult:
             }
         }
 
+    2. terraform plan -json:
+        {
+            "planned_values": {
+                "root_module": {
+                    "resources": [...],
+                    "child_modules": [...]
+                }
+            },
+            "prior_state": {
+                "values": {
+                    "root_module": {...}
+                }
+            }
+        }
+
     Args:
-        json_data: Parsed JSON from terraform show -json
+        json_data: Parsed JSON from terraform show/plan -json
 
     Returns:
         TerraformStateResult with parsed resources
     """
     result = TerraformStateResult()
 
-    values = json_data.get("values")
-    if not values:
-        logger.debug("No 'values' key in terraform state JSON")
-        return result
+    # Try different JSON structures in order of preference
+    root_module = None
 
-    root_module = values.get("root_module")
+    # 1. Try "values" (terraform show -json format)
+    values = json_data.get("values")
+    if values:
+        root_module = values.get("root_module")
+        if root_module:
+            logger.debug("Using 'values.root_module' structure (terraform show format)")
+
+    # 2. Try "planned_values" (terraform plan -json format)
     if not root_module:
-        logger.debug("No 'root_module' in terraform state JSON")
+        planned_values = json_data.get("planned_values")
+        if planned_values:
+            root_module = planned_values.get("root_module")
+            if root_module:
+                logger.debug("Using 'planned_values.root_module' structure (terraform plan format)")
+
+    # 3. Try "prior_state.values" (terraform plan -json format, existing state)
+    if not root_module:
+        prior_state = json_data.get("prior_state")
+        if prior_state:
+            prior_values = prior_state.get("values")
+            if prior_values:
+                root_module = prior_values.get("root_module")
+                if root_module:
+                    logger.debug("Using 'prior_state.values.root_module' structure")
+
+    if not root_module:
+        logger.debug("No root_module found in terraform JSON")
         return result
 
     # Parse root module resources
