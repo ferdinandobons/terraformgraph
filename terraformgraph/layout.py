@@ -174,7 +174,7 @@ class LayoutEngine:
             st = service.service_type
             if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
                 edge_services.append(service)
-            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc'):
+            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc', 'internet_gateway', 'nat_gateway'):
                 vpc_services.append(service)
             elif st in ('s3', 'dynamodb', 'mongodb'):
                 data_services.append(service)
@@ -221,6 +221,7 @@ class LayoutEngine:
                     aggregated.vpc_structure,
                     has_vpc_services=len(services_without_subnets) > 0,
                     has_services_in_subnets=len(services_with_subnets) > 0,
+                    services_with_subnets=services_with_subnets,
                 )
             else:
                 vpc_height = 180
@@ -325,7 +326,7 @@ class LayoutEngine:
             st = service.service_type
             if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
                 edge_services.append(service)
-            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc'):
+            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc', 'internet_gateway', 'nat_gateway'):
                 vpc_services.append(service)
             elif st in ('s3', 'dynamodb', 'mongodb'):
                 data_services.append(service)
@@ -351,6 +352,7 @@ class LayoutEngine:
                     aggregated.vpc_structure,
                     has_vpc_services=len(services_without_subnets) > 0,
                     has_services_in_subnets=len(services_with_subnets) > 0,
+                    services_with_subnets=services_with_subnets,
                 )
             else:
                 vpc_height = 180
@@ -395,6 +397,7 @@ class LayoutEngine:
         vpc_structure: "VPCStructure",
         has_vpc_services: bool = True,
         has_services_in_subnets: bool = False,
+        services_with_subnets: Optional[List[LogicalService]] = None,
     ) -> int:
         """Compute VPC box height based on subnet count, services, and endpoints.
 
@@ -402,6 +405,7 @@ class LayoutEngine:
             vpc_structure: VPCStructure with availability zones, subnets, and endpoints
             has_vpc_services: Whether there are VPC services to display in top row
             has_services_in_subnets: Whether there are services positioned inside subnets
+            services_with_subnets: List of services that go inside subnets (for precise calculation)
 
         Returns:
             Height in pixels for the VPC box
@@ -409,39 +413,68 @@ class LayoutEngine:
         if not vpc_structure or not vpc_structure.availability_zones:
             return 180  # Default height
 
-        # Find max subnets in any AZ
-        max_subnets = 0
-        for az in vpc_structure.availability_zones:
-            max_subnets = max(max_subnets, len(az.subnets))
-
-        # Calculate height: base height + per-subnet height
-        # Increase subnet height if services are inside (94px = icon 64 + padding 30)
-        subnet_height = 94 if has_services_in_subnets else 50
+        # Constants - MUST use scaled values to match compute_layout()
+        subnet_padding = 10  # Padding between subnets
         az_header_height = 30  # Height for AZ header
-        vpc_header_height = 40  # Height for VPC header
-        base_padding = 40  # Top and bottom padding
-        services_row_height = 100 if has_vpc_services else 0  # Height for services row
+        # VPC header uses: group_padding + 30 (see compute_layout line 239)
+        vpc_header_height = self.config.group_padding + 30
+        base_padding = 40  # Bottom padding
+        # Services row uses: icon_size + 50 (see compute_layout line 254)
+        services_row_height = (self.config.icon_size + 50) if has_vpc_services else 0
+        empty_subnet_height = 60
+        # Service subnet height uses: icon_size + 56 (see _layout_subnets line 585)
+        service_subnet_height = self.config.icon_size + 56
 
-        # Height based on subnets
+        # Calculate height needed for subnets in each AZ
+        # Find which subnets will have services
+        subnets_with_services: set = set()
+        if services_with_subnets:
+            for service in services_with_subnets:
+                for subnet_id in service.subnet_ids:
+                    # Normalize subnet ID
+                    if subnet_id.startswith("_state_subnet:"):
+                        # Will be resolved later, assume it matches a subnet
+                        subnets_with_services.add(subnet_id)
+                    else:
+                        subnets_with_services.add(subnet_id)
+
+        # Calculate max height needed across all AZs
+        max_az_content_height = 0
+        for az in vpc_structure.availability_zones:
+            az_content_height = 0
+            for subnet in az.subnets:
+                # Check if this subnet will have services
+                has_services = subnet.resource_id in subnets_with_services
+                # Also check by AWS ID
+                if subnet.aws_id:
+                    if f"_state_subnet:{subnet.aws_id}" in subnets_with_services:
+                        has_services = True
+
+                subnet_h = service_subnet_height if has_services else empty_subnet_height
+                az_content_height += subnet_h + subnet_padding
+
+            max_az_content_height = max(max_az_content_height, az_content_height)
+
+        # Total height for subnets
         height_for_subnets = (
             vpc_header_height +
             services_row_height +
             az_header_height +
-            (max_subnets * subnet_height) +
+            max_az_content_height +
             base_padding
         )
 
         # Height based on endpoints (if present)
         num_endpoints = len(vpc_structure.endpoints) if vpc_structure.endpoints else 0
-        endpoint_spacing = 55
+        endpoint_spacing = 72  # Match the actual spacing used in _layout_vpc_structure
         height_for_endpoints = (
             vpc_header_height +
             services_row_height +
             (num_endpoints * endpoint_spacing) +
-            base_padding
+            base_padding + 20
         ) if num_endpoints > 0 else 0
 
-        return max(180, height_for_subnets, height_for_endpoints)
+        return max(200, height_for_subnets, height_for_endpoints)
 
     def _layout_vpc_structure(
         self,
@@ -548,7 +581,9 @@ class LayoutEngine:
             return
 
         subnet_padding = 10
-        subnet_height = 40
+        # Base subnet height: 60px for empty subnets (enough for label and visibility)
+        # Must match _compute_vpc_height for consistency
+        subnet_height = 60
         subnet_width = az_pos.width - (2 * subnet_padding)
 
         subnet_y = az_pos.y + 30  # Below AZ header
@@ -578,9 +613,11 @@ class LayoutEngine:
             subnet_services = services_by_subnet.get(subnet.resource_id, [])
 
             # Increase subnet height if it contains services
+            # Service box needs: icon (64px) + label padding below (36px) + top padding (8px) + margins
+            # Total service box height: 64 + 44 = 108px, add margin = 120px
             actual_subnet_height = subnet_height
             if subnet_services:
-                actual_subnet_height = max(subnet_height, self.config.icon_size + 30)  # 64 + 30 = 94px
+                actual_subnet_height = max(subnet_height, self.config.icon_size + 56)  # 64 + 56 = 120
 
             positions[subnet.resource_id] = Position(
                 x=az_pos.x + subnet_padding,
@@ -591,8 +628,10 @@ class LayoutEngine:
 
             # Position services inside this subnet
             if subnet_services:
-                service_x = az_pos.x + subnet_padding + 10
-                service_y = subnet_y + (actual_subnet_height - self.config.icon_size) / 2
+                service_x = az_pos.x + subnet_padding + 15  # 15px left margin inside subnet
+                # Center service vertically, accounting for the -8px top padding from renderer
+                # Service icon is at y, but box extends 8px above, so offset by 8
+                service_y = subnet_y + 8 + (actual_subnet_height - (self.config.icon_size + 44)) / 2
 
                 for service in subnet_services:
                     # Only position if not already positioned (avoid duplicates)
@@ -603,7 +642,8 @@ class LayoutEngine:
                             width=self.config.icon_size,
                             height=self.config.icon_size
                         )
-                        service_x += self.config.icon_size + 20
+                        # Space between services: icon width + box padding (16px) + gap (10px)
+                        service_x += self.config.icon_size + 26
 
             subnet_y += actual_subnet_height + subnet_padding
 

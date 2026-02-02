@@ -73,9 +73,13 @@ class LogicalService:
     is_vpc_resource: bool = False
     attributes: Dict[str, str] = field(default_factory=dict)
     subnet_ids: List[str] = field(default_factory=list)  # Subnet resource IDs this service belongs to
+    resource_id: Optional[str] = None  # For de-grouped VPC services, uses resource's full_id
 
     @property
     def id(self) -> str:
+        # Use resource_id for de-grouped services (unique per resource)
+        if self.resource_id:
+            return self.resource_id
         return f"{self.service_type}.{self.name}"
 
 
@@ -228,6 +232,48 @@ class ResourceAggregator:
                 subnet_name = match.group(1)
                 subnet_ids.add(f"aws_subnet.{subnet_name}")
 
+    def _get_resource_display_name(
+        self,
+        resource: TerraformResource,
+        resolver: Optional["VariableResolver"] = None,
+    ) -> str:
+        """Extract display name for a single resource.
+
+        Args:
+            resource: TerraformResource to get display name for
+            resolver: Optional VariableResolver for resolving interpolations
+
+        Returns:
+            Human-readable display name for the resource
+        """
+        # Try to get name from attributes or use resource_name
+        attr_name = resource.attributes.get('name', '')
+        fallback_name = resource.resource_name
+
+        display_name = fallback_name
+
+        # If attribute name contains unresolved variables, use resource_name
+        if isinstance(attr_name, str) and attr_name:
+            # Resolve any variable interpolations
+            if resolver:
+                resolved_name = resolver.resolve(attr_name)
+                # If still contains ${, fall back to resource name
+                if '${' not in resolved_name:
+                    display_name = resolved_name
+            else:
+                # If it doesn't contain ${, use attr_name
+                if '${' not in attr_name:
+                    display_name = attr_name
+
+        # Clean up underscore-based names to be more readable
+        display_name = display_name.replace('_', ' ').title()
+
+        # Truncate long names
+        if len(display_name) > 20:
+            display_name = display_name[:17] + "..."
+
+        return display_name
+
     def aggregate(
         self,
         parse_result: ParseResult,
@@ -267,79 +313,105 @@ class ResourceAggregator:
             rule = self._aggregation_rules[rule_name]
 
             # Count primary resources
-            primary_count = sum(1 for r in resources if r.resource_type in rule['primary'])
+            primary_resources = [r for r in resources if r.resource_type in rule['primary']]
+            primary_count = len(primary_resources)
             if primary_count == 0:
                 continue  # Skip if no primary resources
 
-            # Get actual resource name from primary resource if available
-            display_name = rule['display_name']
-            primary_resources = [r for r in resources if r.resource_type in rule['primary']]
-            if primary_resources:
-                first_resource = primary_resources[0]
-                # Try to get name from attributes or use resource_name
-                attr_name = first_resource.attributes.get('name', '')
-                fallback_name = first_resource.resource_name
+            # VPC resources: de-group - create one LogicalService per primary resource
+            if rule['is_vpc']:
+                for resource in primary_resources:
+                    # Extract subnet_ids for this specific resource
+                    subnet_ids = self._extract_subnet_ids([resource], state_result)
 
-                # If attribute name contains unresolved variables, use resource_name
-                if isinstance(attr_name, str) and attr_name:
-                    # Resolve any variable interpolations
-                    if resolver:
-                        resolved_name = resolver.resolve(attr_name)
-                        # If still contains ${, fall back to resource name
-                        if '${' in resolved_name:
-                            display_name = fallback_name
-                        else:
-                            display_name = resolved_name
-                    else:
-                        # If it contains ${, use resource_name, else use attr_name
-                        if '${' in attr_name:
-                            display_name = fallback_name
-                        else:
-                            display_name = attr_name
-                else:
-                    display_name = fallback_name
+                    # Get display name for this specific resource
+                    display_name = self._get_resource_display_name(resource, resolver)
 
-                # Clean up underscore-based names to be more readable
-                display_name = display_name.replace('_', ' ').title()
+                    service = LogicalService(
+                        service_type=rule_name,
+                        name=display_name,
+                        icon_resource_type=rule['icon'],
+                        resources=[resource],  # Single resource
+                        count=1,
+                        is_vpc_resource=True,
+                        subnet_ids=subnet_ids,
+                        resource_id=resource.full_id,  # Unique ID for this resource
+                    )
 
-                # Truncate long names
-                if len(display_name) > 20:
-                    display_name = display_name[:17] + "..."
-
-            # Extract subnet_ids from resources
-            subnet_ids = self._extract_subnet_ids(resources, state_result)
-
-            service = LogicalService(
-                service_type=rule_name,
-                name=display_name,
-                icon_resource_type=rule['icon'],
-                resources=resources,
-                count=primary_count,
-                is_vpc_resource=rule['is_vpc'],
-                subnet_ids=subnet_ids,
-            )
-
-            result.services.append(service)
-            if service.is_vpc_resource:
-                result.vpc_services.append(service)
+                    result.services.append(service)
+                    result.vpc_services.append(service)
             else:
+                # Non-VPC resources: keep grouped (original behavior)
+                display_name = rule['display_name']
+                if primary_resources:
+                    first_resource = primary_resources[0]
+                    # Try to get name from attributes or use resource_name
+                    attr_name = first_resource.attributes.get('name', '')
+                    fallback_name = first_resource.resource_name
+
+                    # If attribute name contains unresolved variables, use resource_name
+                    if isinstance(attr_name, str) and attr_name:
+                        # Resolve any variable interpolations
+                        if resolver:
+                            resolved_name = resolver.resolve(attr_name)
+                            # If still contains ${, fall back to resource name
+                            if '${' in resolved_name:
+                                display_name = fallback_name
+                            else:
+                                display_name = resolved_name
+                        else:
+                            # If it contains ${, use resource_name, else use attr_name
+                            if '${' in attr_name:
+                                display_name = fallback_name
+                            else:
+                                display_name = attr_name
+                    else:
+                        display_name = fallback_name
+
+                    # Clean up underscore-based names to be more readable
+                    display_name = display_name.replace('_', ' ').title()
+
+                    # Truncate long names
+                    if len(display_name) > 20:
+                        display_name = display_name[:17] + "..."
+
+                # Extract subnet_ids from all resources (for non-VPC, usually empty)
+                subnet_ids = self._extract_subnet_ids(resources, state_result)
+
+                service = LogicalService(
+                    service_type=rule_name,
+                    name=display_name,
+                    icon_resource_type=rule['icon'],
+                    resources=resources,
+                    count=primary_count,
+                    is_vpc_resource=False,
+                    subnet_ids=subnet_ids,
+                )
+
+                result.services.append(service)
                 result.global_services.append(service)
 
         # Create logical connections based on which services exist
-        # Build a mapping from service_type to actual service object
-        service_by_type = {s.service_type: s for s in result.services}
+        # Build a mapping from service_type to list of services (supports de-grouped services)
+        services_by_type: Dict[str, List[LogicalService]] = {}
+        for s in result.services:
+            services_by_type.setdefault(s.service_type, []).append(s)
+
         for conn in self._logical_connections:
-            source = conn.get("source", "")
-            target = conn.get("target", "")
-            if source in service_by_type and target in service_by_type:
-                source_service = service_by_type[source]
-                target_service = service_by_type[target]
-                result.connections.append(LogicalConnection(
-                    source_id=source_service.id,
-                    target_id=target_service.id,
-                    label=conn.get("label", ""),
-                    connection_type=conn.get("type", "default"),
-                ))
+            source_type = conn.get("source", "")
+            target_type = conn.get("target", "")
+            if source_type in services_by_type and target_type in services_by_type:
+                source_services = services_by_type[source_type]
+                target_services = services_by_type[target_type]
+                # Connect each source to each target of matching type
+                for source_service in source_services:
+                    for target_service in target_services:
+                        result.connections.append(LogicalConnection(
+                            source_id=source_service.id,
+                            target_id=target_service.id,
+                            label=conn.get("label", ""),
+                            connection_type=conn.get("type", "default"),
+                        ))
 
         # Build VPC structure if resolver is available
         if resolver is not None:

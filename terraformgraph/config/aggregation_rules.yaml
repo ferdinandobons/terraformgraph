@@ -20,7 +20,17 @@ networking:
 
   vpc:
     primary: ["aws_vpc"]
-    secondary: ["aws_subnet", "aws_route_table", "aws_internet_gateway", "aws_nat_gateway", "aws_route_table_association", "aws_eip"]
+    secondary: ["aws_subnet", "aws_route_table", "aws_route_table_association"]
+    in_vpc: true
+
+  internet_gateway:
+    primary: ["aws_internet_gateway"]
+    secondary: []
+    in_vpc: true
+
+  nat_gateway:
+    primary: ["aws_nat_gateway"]
+    secondary: ["aws_eip"]
     in_vpc: true
 
   security_groups:

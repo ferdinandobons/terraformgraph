@@ -8,6 +8,7 @@ Generates interactive HTML diagrams with:
 """
 
 import html
+import json
 import re
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -107,7 +108,10 @@ class SVGRenderer:
         svg_parts.append('<g id="services-layer">')
         for service in services:
             if service.id in positions:
-                svg_parts.append(self._render_service(service, positions[service.id], aws_id_to_resource_id))
+                svg_parts.append(self._render_service(
+                    service, positions[service.id], aws_id_to_resource_id,
+                    positions, vpc_structure
+                ))
         svg_parts.append('</g>')
 
         svg_parts.append('</svg>')
@@ -321,7 +325,9 @@ class SVGRenderer:
         self,
         service: LogicalService,
         pos: Position,
-        aws_id_to_resource_id: Optional[Dict[str, str]] = None
+        aws_id_to_resource_id: Optional[Dict[str, str]] = None,
+        all_positions: Optional[Dict[str, Position]] = None,
+        vpc_structure: Optional["VPCStructure"] = None
     ) -> str:
         """Render a draggable logical service with its icon."""
         icon_svg = self.icon_mapper.get_icon_svg(service.icon_resource_type, 48)
@@ -344,35 +350,52 @@ class SVGRenderer:
         # Determine if this is a VPC service
         is_vpc_service = 'true' if service.is_vpc_resource else 'false'
 
-        # Get subnet constraint if service has subnet_ids (use first subnet for constraint)
+        # For non-VPC services with multiple resources, add expandable attributes
+        expand_attrs = ''
+        if not service.is_vpc_resource and service.count > 1:
+            resources_data = json.dumps([{
+                'name': r.attributes.get('name', r.resource_name),
+                'type': r.resource_type,
+                'id': r.full_id
+            } for r in service.resources])
+            # Use single quotes for JSON to avoid conflict with HTML double quotes
+            expand_attrs = f"data-expandable='true' data-resources='{html.escape(resources_data)}'"
+
+        # Determine subnet constraint directly from service.subnet_ids
+        # This ensures the drag constraint matches the service's actual subnet assignment
         subnet_attr = ''
-        if service.subnet_ids:
-            # First, try direct aws_subnet references
-            aws_subnets = [s for s in service.subnet_ids if s.startswith('aws_subnet.')]
-            if aws_subnets:
-                subnet_attr = f'data-subnet-id="{html.escape(aws_subnets[0])}"'
-            elif aws_id_to_resource_id:
-                # If no direct references, try to map _state_subnet: IDs to resource IDs
-                for subnet_id in service.subnet_ids:
-                    if subnet_id.startswith("_state_subnet:"):
-                        aws_id = subnet_id[len("_state_subnet:"):]
-                        if aws_id in aws_id_to_resource_id:
-                            resource_id = aws_id_to_resource_id[aws_id]
-                            subnet_attr = f'data-subnet-id="{html.escape(resource_id)}"'
-                            break
+        if service.subnet_ids and vpc_structure and all_positions:
+            # Map from AWS IDs to resource IDs for state-based lookups
+            for subnet_id in service.subnet_ids:
+                resolved_id = subnet_id
+                # Handle _state_subnet: prefixed IDs (from Terraform state)
+                if subnet_id.startswith("_state_subnet:"):
+                    aws_id = subnet_id[len("_state_subnet:"):]
+                    resolved_id = aws_id_to_resource_id.get(aws_id)
+
+                # Find the subnet that contains this service's position
+                if resolved_id and resolved_id in all_positions:
+                    subnet_pos = all_positions[resolved_id]
+                    # Check if service position is inside this subnet
+                    if (subnet_pos.x <= pos.x <= subnet_pos.x + subnet_pos.width and
+                        subnet_pos.y <= pos.y <= subnet_pos.y + subnet_pos.height):
+                        subnet_attr = f'data-subnet-id="{html.escape(resolved_id)}"'
+                        break
 
         if icon_svg:
             icon_content = self._extract_svg_content(icon_svg)
+            icon_viewbox = self._extract_svg_viewbox(icon_svg)
 
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
+               {expand_attrs}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
                     fill="white" stroke="#e0e0e0" stroke-width="1" rx="8" ry="8"
                     filter="url(#shadow)"/>
-                <svg class="service-icon" width="{pos.width}" height="{pos.height}" viewBox="0 0 64 64">
+                <svg class="service-icon" width="{pos.width}" height="{pos.height}" viewBox="{icon_viewbox}">
                     {icon_content}
                 </svg>
                 <text class="service-label" x="{pos.width/2}" y="{pos.height + 16}"
@@ -387,6 +410,7 @@ class SVGRenderer:
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
+               {expand_attrs}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
@@ -415,6 +439,14 @@ class SVGRenderer:
         if match:
             return match.group(1)
         return ''
+
+    def _extract_svg_viewbox(self, svg_string: str) -> str:
+        """Extract the viewBox attribute from an SVG string."""
+        match = re.search(r'viewBox=["\']([^"\']+)["\']', svg_string)
+        if match:
+            return match.group(1)
+        # Default to 64 64 for Architecture icons
+        return "0 0 64 64"
 
     def _render_connection(
         self,
@@ -805,6 +837,71 @@ class HTMLRenderer:
             margin-top: 8px;
             font-size: 11px;
         }}
+        .expand-popup {{
+            position: fixed;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+            padding: 16px;
+            z-index: 2000;
+            max-width: 320px;
+            max-height: 400px;
+            overflow-y: auto;
+        }}
+        .expand-popup-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }}
+        .expand-popup-title {{
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #232f3e;
+        }}
+        .expand-popup-close {{
+            cursor: pointer;
+            font-size: 20px;
+            color: #999;
+            line-height: 1;
+            padding: 4px;
+        }}
+        .expand-popup-close:hover {{
+            color: #333;
+        }}
+        .expand-popup-item {{
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            background: #f8f9fa;
+            transition: background 0.15s;
+        }}
+        .expand-popup-item:hover {{
+            background: #e9ecef;
+        }}
+        .expand-popup-item:last-child {{
+            margin-bottom: 0;
+        }}
+        .expand-popup-item-name {{
+            font-weight: 500;
+            font-size: 13px;
+            color: #333;
+            margin-bottom: 2px;
+        }}
+        .expand-popup-item-type {{
+            font-size: 11px;
+            color: #666;
+        }}
+        .service[data-expandable="true"] {{
+            cursor: pointer !important;
+        }}
+        .service[data-expandable="true"]:hover .service-bg {{
+            stroke: #8c4fff;
+            stroke-width: 2;
+        }}
     </style>
 </head>
 <body>
@@ -916,6 +1013,13 @@ class HTMLRenderer:
     </div>
     <div class="tooltip" id="tooltip"></div>
     <div class="highlight-info" id="highlight-info"></div>
+    <div class="expand-popup" id="expand-popup" style="display: none;">
+        <div class="expand-popup-header">
+            <h4 class="expand-popup-title" id="expand-popup-title">Resources</h4>
+            <span class="expand-popup-close" onclick="closeExpandPopup()">&times;</span>
+        </div>
+        <div id="expand-popup-content"></div>
+    </div>
     <div class="export-modal" id="export-modal">
         <div class="export-modal-content">
             <h3>Export Diagram</h3>
@@ -1144,12 +1248,18 @@ class HTMLRenderer:
         let currentHighlight = null;
 
         function initHighlighting() {{
-            // Click on service to highlight connections
+            // Click on service to highlight connections or expand
             document.querySelectorAll('.service').forEach(el => {{
                 el.addEventListener('click', (e) => {{
-                    // Don't highlight if dragging
+                    // Don't process if dragging
                     if (el.classList.contains('dragging')) return;
                     e.stopPropagation();
+
+                    // Check if this is an expandable service (non-VPC with multiple resources)
+                    if (el.dataset.expandable === 'true') {{
+                        showExpandPopup(el, e.clientX, e.clientY);
+                        return;
+                    }}
 
                     const serviceId = el.dataset.serviceId;
 
@@ -1180,13 +1290,68 @@ class HTMLRenderer:
                 }});
             }});
 
-            // Click on background to clear highlights
+            // Click on background to clear highlights and close popups
             document.getElementById('diagram-svg').addEventListener('click', (e) => {{
                 if (e.target.tagName === 'svg' || e.target.classList.contains('group-bg')) {{
                     clearHighlights();
+                    closeExpandPopup();
                 }}
             }});
         }}
+
+        // ============ EXPAND POPUP SYSTEM ============
+        function showExpandPopup(serviceEl, x, y) {{
+            const popup = document.getElementById('expand-popup');
+            const title = document.getElementById('expand-popup-title');
+            const content = document.getElementById('expand-popup-content');
+
+            // Get service name from tooltip
+            const serviceName = serviceEl.dataset.tooltip.split(' (')[0];
+            title.textContent = serviceName + ' - Resources';
+
+            // Parse resources data
+            let resourceCount = 0;
+            try {{
+                const resources = JSON.parse(serviceEl.dataset.resources);
+                resourceCount = resources.length;
+
+                // Build content
+                content.innerHTML = resources.map(r => `
+                    <div class="expand-popup-item">
+                        <div class="expand-popup-item-name">${{r.name}}</div>
+                        <div class="expand-popup-item-type">${{r.type}}</div>
+                    </div>
+                `).join('');
+            }} catch (e) {{
+                content.innerHTML = '<div class="expand-popup-item">Error loading resources</div>';
+                resourceCount = 1;
+            }}
+
+            // Position popup (avoid going off screen)
+            const popupWidth = 320;
+            const popupHeight = Math.min(400, resourceCount * 60 + 60);
+            const posX = Math.min(x + 10, window.innerWidth - popupWidth - 20);
+            const posY = Math.min(y + 10, window.innerHeight - popupHeight - 20);
+
+            popup.style.left = posX + 'px';
+            popup.style.top = posY + 'px';
+            popup.style.display = 'block';
+        }}
+
+        function closeExpandPopup() {{
+            document.getElementById('expand-popup').style.display = 'none';
+        }}
+
+        // Close expand popup when clicking outside
+        document.addEventListener('click', (e) => {{
+            const popup = document.getElementById('expand-popup');
+            if (popup.style.display === 'block' && !popup.contains(e.target)) {{
+                const clickedService = e.target.closest('.service');
+                if (!clickedService || clickedService.dataset.expandable !== 'true') {{
+                    closeExpandPopup();
+                }}
+            }}
+        }});
 
         function highlightService(serviceId) {{
             clearHighlights();

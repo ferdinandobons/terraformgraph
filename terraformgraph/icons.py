@@ -16,8 +16,8 @@ TERRAFORM_TO_ICON: Dict[str, Tuple[str, str]] = {
     # ==========================================================================
     'aws_vpc': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
     'aws_subnet': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
-    'aws_internet_gateway': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
-    'aws_nat_gateway': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
+    'aws_internet_gateway': ('Res_Networking-Content-Delivery', 'Res_Amazon-VPC_Internet-Gateway'),
+    'aws_nat_gateway': ('Res_Networking-Content-Delivery', 'Res_Amazon-VPC_NAT-Gateway'),
     'aws_route_table': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
     'aws_route': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
     'aws_route_table_association': ('Arch_Networking-Content-Delivery', 'Arch_Amazon-Virtual-Private-Cloud'),
@@ -292,10 +292,10 @@ TERRAFORM_TO_ICON: Dict[str, Tuple[str, str]] = {
     # ==========================================================================
     # SECURITY & IDENTITY
     # ==========================================================================
-    'aws_security_group': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
-    'aws_security_group_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
-    'aws_vpc_security_group_ingress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
-    'aws_vpc_security_group_egress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
+    'aws_security_group': ('Res_General-Icons', 'Res_Firewall_48_Light'),
+    'aws_security_group_rule': ('Res_General-Icons', 'Res_Firewall_48_Light'),
+    'aws_vpc_security_group_ingress_rule': ('Res_General-Icons', 'Res_Firewall_48_Light'),
+    'aws_vpc_security_group_egress_rule': ('Res_General-Icons', 'Res_Firewall_48_Light'),
     'aws_network_acl': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
     'aws_networkfirewall_firewall': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
     'aws_networkfirewall_firewall_policy': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
@@ -639,17 +639,37 @@ class IconMapper:
 
         # Determine which icon set to use based on category prefix
         if category.startswith('Res_'):
-            # Resource Icons (flat structure)
+            # Resource Icons - flat structure with size in filename
             if not self._resource_icons_path:
                 return None
             resource_icons_dir = self._resource_icons_path
+
+            # Special handling for General-Icons (has Light/Dark subdirs)
+            if category == 'Res_General-Icons':
+                # icon_name already contains full name like "Res_Firewall_48_Light"
+                for subdir in ['Res_48_Light', 'Res_48_Dark']:
+                    icon_path = resource_icons_dir / category / subdir / f"{icon_name}.{format}"
+                    if icon_path.exists():
+                        return icon_path
+                return None
+
+            # Standard Resource Icons: filename is {icon_name}_{size}.svg
             icon_path = resource_icons_dir / category / f"{icon_name}_{size}.{format}"
             if icon_path.exists():
                 return icon_path
-            # Try without category subfolder
+
+            # Try with .svg directly (some icons include size in name)
+            icon_path = resource_icons_dir / category / f"{icon_name}.{format}"
+            if icon_path.exists():
+                return icon_path
+
+            # Try searching in subdirectories
             for subdir in resource_icons_dir.iterdir():
                 if subdir.is_dir():
                     test_path = subdir / f"{icon_name}_{size}.{format}"
+                    if test_path.exists():
+                        return test_path
+                    test_path = subdir / f"{icon_name}.{format}"
                     if test_path.exists():
                         return test_path
         else:

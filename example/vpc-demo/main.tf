@@ -507,7 +507,356 @@ resource "aws_lb_target_group_attachment" "web_b" {
   port             = 80
 }
 
+# =============================================================================
+# NON-VPC RESOURCES (for testing expand on-click)
+# =============================================================================
+
+# Route53 - Hosted Zone and Records
+resource "aws_route53_zone" "main" {
+  name = "demo.example.com"
+
+  tags = {
+    Name        = "${var.environment}-zone"
+    Environment = var.environment
+  }
+}
+
+resource "aws_route53_record" "www" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "www.demo.example.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.web.dns_name
+    zone_id                = aws_lb.web.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_route53_record" "api" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "api.demo.example.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.web.dns_name
+    zone_id                = aws_lb.web.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# S3 Buckets
+resource "aws_s3_bucket" "assets" {
+  bucket = "${var.environment}-assets-bucket"
+
+  tags = {
+    Name        = "${var.environment}-assets"
+    Environment = var.environment
+  }
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = "${var.environment}-logs-bucket"
+
+  tags = {
+    Name        = "${var.environment}-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_s3_bucket" "backups" {
+  bucket = "${var.environment}-backups-bucket"
+
+  tags = {
+    Name        = "${var.environment}-backups"
+    Environment = var.environment
+  }
+}
+
+# Lambda Functions
+data "archive_file" "lambda_placeholder" {
+  type        = "zip"
+  output_path = "${path.module}/lambda_placeholder.zip"
+
+  source {
+    content  = "exports.handler = async (event) => { return { statusCode: 200 }; };"
+    filename = "index.js"
+  }
+}
+
+resource "aws_lambda_function" "api_handler" {
+  filename         = data.archive_file.lambda_placeholder.output_path
+  function_name    = "${var.environment}-api-handler"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
+  runtime          = "nodejs18.x"
+
+  tags = {
+    Name        = "${var.environment}-api-handler"
+    Environment = var.environment
+  }
+}
+
+resource "aws_lambda_function" "event_processor" {
+  filename         = data.archive_file.lambda_placeholder.output_path
+  function_name    = "${var.environment}-event-processor"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
+  runtime          = "nodejs18.x"
+
+  tags = {
+    Name        = "${var.environment}-event-processor"
+    Environment = var.environment
+  }
+}
+
+resource "aws_lambda_function" "notification_sender" {
+  filename         = data.archive_file.lambda_placeholder.output_path
+  function_name    = "${var.environment}-notification-sender"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
+  runtime          = "nodejs18.x"
+
+  tags = {
+    Name        = "${var.environment}-notification-sender"
+    Environment = var.environment
+  }
+}
+
+# IAM Roles
+resource "aws_iam_role" "lambda_role" {
+  name = "${var.environment}-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.environment}-lambda-role"
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role" "ec2_role" {
+  name = "${var.environment}-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.environment}-ec2-role"
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${var.environment}-ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.environment}-ecs-task-role"
+    Environment = var.environment
+  }
+}
+
+# SQS Queues
+resource "aws_sqs_queue" "main" {
+  name = "${var.environment}-main-queue"
+
+  tags = {
+    Name        = "${var.environment}-main-queue"
+    Environment = var.environment
+  }
+}
+
+resource "aws_sqs_queue" "dlq" {
+  name = "${var.environment}-dlq"
+
+  tags = {
+    Name        = "${var.environment}-dlq"
+    Environment = var.environment
+  }
+}
+
+resource "aws_sqs_queue" "notifications" {
+  name = "${var.environment}-notifications-queue"
+
+  tags = {
+    Name        = "${var.environment}-notifications"
+    Environment = var.environment
+  }
+}
+
+# SNS Topics
+resource "aws_sns_topic" "alerts" {
+  name = "${var.environment}-alerts"
+
+  tags = {
+    Name        = "${var.environment}-alerts"
+    Environment = var.environment
+  }
+}
+
+resource "aws_sns_topic" "events" {
+  name = "${var.environment}-events"
+
+  tags = {
+    Name        = "${var.environment}-events"
+    Environment = var.environment
+  }
+}
+
+# CloudWatch Log Groups
+resource "aws_cloudwatch_log_group" "app_logs" {
+  name              = "/aws/app/${var.environment}"
+  retention_in_days = 30
+
+  tags = {
+    Name        = "${var.environment}-app-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_log_group" "lambda_logs" {
+  name              = "/aws/lambda/${var.environment}"
+  retention_in_days = 14
+
+  tags = {
+    Name        = "${var.environment}-lambda-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_log_group" "api_logs" {
+  name              = "/aws/api/${var.environment}"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "${var.environment}-api-logs"
+    Environment = var.environment
+  }
+}
+
+# KMS Keys
+resource "aws_kms_key" "main" {
+  description             = "Main encryption key for ${var.environment}"
+  deletion_window_in_days = 7
+
+  tags = {
+    Name        = "${var.environment}-main-key"
+    Environment = var.environment
+  }
+}
+
+resource "aws_kms_key" "data" {
+  description             = "Data encryption key for ${var.environment}"
+  deletion_window_in_days = 7
+
+  tags = {
+    Name        = "${var.environment}-data-key"
+    Environment = var.environment
+  }
+}
+
+# Secrets Manager
+resource "aws_secretsmanager_secret" "db_credentials" {
+  name = "${var.environment}/db-credentials"
+
+  tags = {
+    Name        = "${var.environment}-db-credentials"
+    Environment = var.environment
+  }
+}
+
+resource "aws_secretsmanager_secret" "api_keys" {
+  name = "${var.environment}/api-keys"
+
+  tags = {
+    Name        = "${var.environment}-api-keys"
+    Environment = var.environment
+  }
+}
+
+resource "aws_secretsmanager_secret" "third_party_tokens" {
+  name = "${var.environment}/third-party-tokens"
+
+  tags = {
+    Name        = "${var.environment}-third-party-tokens"
+    Environment = var.environment
+  }
+}
+
+# DynamoDB Tables
+resource "aws_dynamodb_table" "sessions" {
+  name         = "${var.environment}-sessions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "session_id"
+
+  attribute {
+    name = "session_id"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "${var.environment}-sessions"
+    Environment = var.environment
+  }
+}
+
+resource "aws_dynamodb_table" "cache" {
+  name         = "${var.environment}-cache"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "cache_key"
+
+  attribute {
+    name = "cache_key"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "${var.environment}-cache"
+    Environment = var.environment
+  }
+}
+
+# =============================================================================
 # Outputs
+# =============================================================================
+
 output "vpc_id" {
   description = "VPC ID"
   value       = aws_vpc.main.id
