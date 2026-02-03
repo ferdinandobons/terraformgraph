@@ -2,7 +2,7 @@
 
 Generate interactive architecture diagrams from your Terraform configurations. Supports AWS resources with automatic service grouping, relationship detection, and beautiful SVG/HTML output.
 
-![Example Diagram](docs/diagram.png)
+![Example Diagram](docs/diagram.jpg)
 
 ## Features
 
