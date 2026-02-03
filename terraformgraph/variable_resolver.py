@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import hcl2
+from lark.exceptions import UnexpectedInput, UnexpectedToken
 
 logger = logging.getLogger(__name__)
 
@@ -50,49 +51,55 @@ class VariableResolver:
 
         for tfvars_file in tfvars_files:
             try:
-                with open(tfvars_file, 'r') as f:
+                with open(tfvars_file, "r", encoding="utf-8") as f:
                     content = hcl2.load(f)
                     for key, value in content.items():
                         self._variables[key] = value
-            except Exception as e:
+            except OSError as e:
+                logger.warning("Could not read tfvars file %s: %s", tfvars_file, e)
+            except (UnexpectedInput, UnexpectedToken) as e:
                 logger.warning("Could not parse tfvars file %s: %s", tfvars_file, e)
 
     def _parse_locals(self) -> None:
         """Parse locals blocks from all .tf files."""
         for tf_file in self.directory.glob("*.tf"):
             try:
-                with open(tf_file, 'r') as f:
+                with open(tf_file, "r", encoding="utf-8") as f:
                     content = hcl2.load(f)
 
-                for locals_block in content.get('locals', []):
+                for locals_block in content.get("locals", []):
                     if isinstance(locals_block, dict):
                         for key, value in locals_block.items():
                             self._locals[key] = value
-            except Exception as e:
+            except OSError as e:
+                logger.warning("Could not read file %s: %s", tf_file, e)
+            except (UnexpectedInput, UnexpectedToken) as e:
                 logger.warning("Could not parse locals from %s: %s", tf_file, e)
 
     def _parse_variable_defaults(self) -> None:
         """Parse variable blocks for default values from all .tf files."""
         for tf_file in self.directory.glob("*.tf"):
             try:
-                with open(tf_file, 'r') as f:
+                with open(tf_file, "r", encoding="utf-8") as f:
                     content = hcl2.load(f)
 
-                for variable_block in content.get('variable', []):
+                for variable_block in content.get("variable", []):
                     if isinstance(variable_block, dict):
                         for var_name, var_config in variable_block.items():
                             if isinstance(var_config, dict):
-                                default = var_config.get('default')
+                                default = var_config.get("default")
                                 if default is not None:
                                     self._variables[var_name] = default
                             elif isinstance(var_config, list) and var_config:
                                 # HCL2 sometimes returns list of configs
                                 config = var_config[0]
                                 if isinstance(config, dict):
-                                    default = config.get('default')
+                                    default = config.get("default")
                                     if default is not None:
                                         self._variables[var_name] = default
-            except Exception as e:
+            except OSError as e:
+                logger.warning("Could not read file %s: %s", tf_file, e)
+            except (UnexpectedInput, UnexpectedToken) as e:
                 logger.warning("Could not parse variables from %s: %s", tf_file, e)
 
     def get_variable(self, name: str) -> Optional[Any]:
@@ -136,13 +143,13 @@ class VariableResolver:
             return value
 
         # Pattern to match ${var.name} or ${local.name}
-        pattern = r'\$\{(var|local)\.(\w+)\}'
+        pattern = r"\$\{(var|local)\.(\w+)\}"
 
         def replace_interpolation(match: re.Match) -> str:
             ref_type = match.group(1)
             ref_name = match.group(2)
 
-            if ref_type == 'var':
+            if ref_type == "var":
                 resolved = self.get_variable(ref_name)
             else:  # local
                 resolved = self.get_local(ref_name)
@@ -170,4 +177,4 @@ class VariableResolver:
             return name
 
         # Leave room for '...' suffix
-        return name[:max_length - 3] + "..."
+        return name[: max_length - 3] + "..."

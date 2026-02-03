@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 @dataclass
 class Position:
     """Position and size of an element."""
+
     x: float
     y: float
     width: float
@@ -25,6 +26,7 @@ class Position:
 @dataclass
 class ServiceGroup:
     """A visual group of services."""
+
     group_type: str  # 'aws_cloud', 'vpc', 'global'
     name: str
     services: List[LogicalService] = field(default_factory=list)
@@ -38,6 +40,7 @@ class LayoutConfig:
     Supports responsive sizing based on content. Base values are scaled
     according to the number of services and VPC complexity.
     """
+
     # Base dimensions (will be scaled)
     canvas_width: int = 1400
     canvas_height: int = 900
@@ -98,7 +101,9 @@ class LayoutEngine:
             num_azs = len(aggregated.vpc_structure.availability_zones)
             for az in aggregated.vpc_structure.availability_zones:
                 max_subnets_per_az = max(max_subnets_per_az, len(az.subnets))
-            num_endpoints = len(aggregated.vpc_structure.endpoints) if aggregated.vpc_structure.endpoints else 0
+            num_endpoints = (
+                len(aggregated.vpc_structure.endpoints) if aggregated.vpc_structure.endpoints else 0
+            )
 
         # Base scale on service count (optimal for 8-12 services)
         service_scale = 1.0
@@ -125,9 +130,8 @@ class LayoutEngine:
         return service_scale * vpc_scale
 
     def compute_layout(
-        self,
-        aggregated: AggregatedResult
-    ) -> Tuple[Dict[str, Position], List[ServiceGroup]]:
+        self, aggregated: AggregatedResult
+    ) -> Tuple[Dict[str, Position], List[ServiceGroup], int]:
         """
         Compute positions for all logical services.
 
@@ -137,6 +141,9 @@ class LayoutEngine:
         - Bottom rows: Global services grouped by function
 
         Dimensions are computed responsively based on content.
+
+        Returns:
+            Tuple of (positions dict, groups list, actual_height)
         """
         # Compute responsive scale and apply to config
         scale = self._compute_responsive_scale(aggregated)
@@ -145,26 +152,22 @@ class LayoutEngine:
         positions: Dict[str, Position] = {}
         groups: List[ServiceGroup] = []
 
-        # Compute required height based on content (will adjust AWS Cloud later)
-        estimated_height = self._estimate_required_height(aggregated)
-        actual_canvas_height = max(self.config.canvas_height, estimated_height)
-
-        # Create AWS Cloud container (height will be finalized after layout)
+        # Placeholder for AWS Cloud - will be updated at the end
         aws_cloud = ServiceGroup(
-            group_type='aws_cloud',
-            name='AWS Cloud',
+            group_type="aws_cloud",
+            name="AWS Cloud",
             position=Position(
                 x=self.config.padding,
                 y=self.config.padding,
                 width=self.config.canvas_width - 2 * self.config.padding,
-                height=actual_canvas_height - 2 * self.config.padding
-            )
+                height=0,  # Will be calculated at the end
+            ),
         )
         groups.append(aws_cloud)
 
         # Categorize services for layout
         edge_services = []  # CloudFront, WAF, Route53, ACM, Cognito
-        vpc_services = []   # ALB, ECS, EC2, Security
+        vpc_services = []  # ALB, ECS, EC2, Security
         data_services = []  # S3, DynamoDB, MongoDB
         messaging_services = []  # SQS, SNS, EventBridge
         security_services = []  # KMS, Secrets, IAM
@@ -172,15 +175,24 @@ class LayoutEngine:
 
         for service in aggregated.services:
             st = service.service_type
-            if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
+            if st in ("cloudfront", "waf", "route53", "acm", "cognito"):
                 edge_services.append(service)
-            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc', 'internet_gateway', 'nat_gateway'):
+            elif st in (
+                "alb",
+                "ecs",
+                "ec2",
+                "security_groups",
+                "security",
+                "vpc",
+                "internet_gateway",
+                "nat_gateway",
+            ):
                 vpc_services.append(service)
-            elif st in ('s3', 'dynamodb', 'mongodb'):
+            elif st in ("s3", "dynamodb", "mongodb"):
                 data_services.append(service)
-            elif st in ('sqs', 'sns', 'eventbridge'):
+            elif st in ("sqs", "sns", "eventbridge"):
                 messaging_services.append(service)
-            elif st in ('kms', 'secrets', 'secrets_manager', 'iam'):
+            elif st in ("kms", "secrets", "secrets_manager", "iam"):
                 security_services.append(service)
             else:
                 other_services.append(service)
@@ -192,9 +204,7 @@ class LayoutEngine:
             x = self._center_row_start(len(edge_services))
             for service in edge_services:
                 positions[service.id] = Position(
-                    x=x, y=y_offset,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
+                    x=x, y=y_offset, width=self.config.icon_size, height=self.config.icon_size
                 )
                 x += self.config.column_spacing
 
@@ -205,7 +215,7 @@ class LayoutEngine:
 
         # Row 2: VPC box with internal services (only if VPC resources exist)
         # Filter out 'vpc' itself from vpc_services for positioning
-        vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
+        vpc_internal = [s for s in vpc_services if s.service_type != "vpc"]
 
         # Only create VPC box if there are VPC services OR vpc_structure exists
         has_vpc_content = len(vpc_internal) > 0 or aggregated.vpc_structure is not None
@@ -223,7 +233,6 @@ class LayoutEngine:
                 vpc_height = self._compute_vpc_height(
                     aggregated.vpc_structure,
                     has_vpc_services=len(services_without_subnets) > 0,
-                    has_services_in_subnets=len(services_with_subnets) > 0,
                     services_with_subnets=services_with_subnets,
                 )
             else:
@@ -231,30 +240,35 @@ class LayoutEngine:
 
             vpc_pos = Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
             vpc_group = ServiceGroup(
-                group_type='vpc',
-                name='VPC',
-                services=vpc_internal,
-                position=vpc_pos
+                group_type="vpc", name="VPC", services=vpc_internal, position=vpc_pos
             )
             groups.append(vpc_group)
 
             # Position services WITHOUT subnet_ids at the TOP, above AZs
             services_row_y = y_offset + self.config.group_padding + 30
             if services_without_subnets:
-                x = self._center_row_start(len(services_without_subnets), vpc_x + self.config.group_padding,
-                                            vpc_x + vpc_width - self.config.group_padding)
+                x = self._center_row_start(
+                    len(services_without_subnets),
+                    vpc_x + self.config.group_padding,
+                    vpc_x + vpc_width - self.config.group_padding,
+                )
                 for service in services_without_subnets:
                     positions[service.id] = Position(
-                        x=x, y=services_row_y,
+                        x=x,
+                        y=services_row_y,
                         width=self.config.icon_size,
-                        height=self.config.icon_size
+                        height=self.config.icon_size,
                     )
                     x += self.config.column_spacing
 
             # Layout VPC structure (AZs and endpoints) BELOW services
             if aggregated.vpc_structure:
                 # AZs start below the services row
-                az_start_y = services_row_y + self.config.icon_size + 50 if services_without_subnets else services_row_y
+                az_start_y = (
+                    services_row_y + self.config.icon_size + 50
+                    if services_without_subnets
+                    else services_row_y
+                )
                 self._layout_vpc_structure(
                     aggregated.vpc_structure,
                     vpc_pos,
@@ -277,15 +291,26 @@ class LayoutEngine:
                 start_x=self.config.padding + 50,
                 start_y=vpc_bottom_y,
                 available_width=self.config.canvas_width - 2 * (self.config.padding + 50),
-                positions=positions
+                positions=positions,
             )
 
-        return positions, groups
+        # Calculate actual height based on final positions
+        max_bottom = 0
+        for pos in positions.values():
+            bottom = pos.y + pos.height + 50  # Add padding for labels
+            max_bottom = max(max_bottom, bottom)
+
+        # Add small bottom margin (just enough for aesthetics)
+        bottom_margin = 20
+        actual_height = int(max_bottom + bottom_margin)
+
+        # Update AWS Cloud box height to fill the canvas (with small margin)
+        aws_cloud.position.height = actual_height - self.config.padding - bottom_margin
+
+        return positions, groups, actual_height
 
     def _build_connection_graph(
-        self,
-        services: List[LogicalService],
-        connections: List[LogicalConnection]
+        self, services: List[LogicalService], connections: List[LogicalConnection]
     ) -> Dict[str, Set[str]]:
         """Build adjacency list of connected service types.
 
@@ -301,8 +326,8 @@ class LayoutEngine:
         for conn in connections:
             src, tgt = conn.source_id, conn.target_id
             # Extract service_type from id (e.g., "lambda.Api Handler" -> "lambda")
-            src_type = src.split('.')[0] if '.' in src else src
-            tgt_type = tgt.split('.')[0] if '.' in tgt else tgt
+            src_type = src.split(".")[0] if "." in src else src
+            tgt_type = tgt.split(".")[0] if "." in tgt else tgt
 
             if src_type in present_types and tgt_type in present_types:
                 graph[src_type].add(tgt_type)
@@ -317,7 +342,7 @@ class LayoutEngine:
         start_x: float,
         start_y: float,
         available_width: float,
-        positions: Dict[str, Position]
+        positions: Dict[str, Position],
     ) -> float:
         """Position services based on their connections (organic layout).
 
@@ -336,11 +361,7 @@ class LayoutEngine:
             by_type.setdefault(s.service_type, []).append(s)
 
         # Sort types by number of connections (most connected first)
-        sorted_types = sorted(
-            by_type.keys(),
-            key=lambda t: len(graph.get(t, set())),
-            reverse=True
-        )
+        sorted_types = sorted(by_type.keys(), key=lambda t: len(graph.get(t, set())), reverse=True)
 
         # Calculate grid dimensions
         service_width = self.config.icon_size + 50  # icon + padding
@@ -397,10 +418,7 @@ class LayoutEngine:
                 y = start_y + row * service_height
 
                 positions[service.id] = Position(
-                    x=x,
-                    y=y,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
+                    x=x, y=y, width=self.config.icon_size, height=self.config.icon_size
                 )
 
                 grid[(row, col)] = service_type
@@ -419,85 +437,8 @@ class LayoutEngine:
         # Return the Y position after all services
         return start_y + (current_row + 1) * service_height + 20
 
-    def _estimate_required_height(self, aggregated: AggregatedResult) -> int:
-        """Estimate the required canvas height based on content.
-
-        Calculates height needed for:
-        - Edge services row
-        - VPC box (with AZs and subnets)
-        - Data services row
-        - Messaging services row
-        - Security/other services row
-        """
-        height = self.config.padding + 40  # Initial offset
-
-        # Categorize services to count rows
-        edge_services = []
-        vpc_services = []
-        data_services = []
-        messaging_services = []
-        security_services = []
-        other_services = []
-
-        for service in aggregated.services:
-            st = service.service_type
-            if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
-                edge_services.append(service)
-            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc', 'internet_gateway', 'nat_gateway'):
-                vpc_services.append(service)
-            elif st in ('s3', 'dynamodb', 'mongodb'):
-                data_services.append(service)
-            elif st in ('sqs', 'sns', 'eventbridge'):
-                messaging_services.append(service)
-            elif st in ('kms', 'secrets', 'secrets_manager', 'iam'):
-                security_services.append(service)
-            else:
-                other_services.append(service)
-
-        # Row 1: Edge services
-        if edge_services:
-            height += self.config.row_spacing + 20
-
-        # Row 2: VPC box
-        vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
-        has_vpc_content = len(vpc_internal) > 0 or aggregated.vpc_structure is not None
-
-        if has_vpc_content:
-            services_with_subnets = [s for s in vpc_internal if s.subnet_ids]
-            services_without_subnets = [s for s in vpc_internal if not s.subnet_ids]
-
-            if aggregated.vpc_structure:
-                vpc_height = self._compute_vpc_height(
-                    aggregated.vpc_structure,
-                    has_vpc_services=len(services_without_subnets) > 0,
-                    has_services_in_subnets=len(services_with_subnets) > 0,
-                    services_with_subnets=services_with_subnets,
-                )
-            else:
-                vpc_height = 180
-
-            height += vpc_height + 40
-
-        # Non-VPC services: estimate based on grid layout
-        non_vpc_services = data_services + messaging_services + security_services + other_services
-        if non_vpc_services:
-            service_width = self.config.icon_size + 50
-            service_height = self.config.icon_size + 50
-            available_width = self.config.canvas_width - 2 * (self.config.padding + 50)
-            cols = max(1, int(available_width / service_width))
-            rows = (len(non_vpc_services) + cols - 1) // cols
-            height += rows * service_height + 40
-
-        # Bottom padding
-        height += self.config.padding + 40
-
-        return int(height)
-
     def _center_row_start(
-        self,
-        num_items: int,
-        min_x: Optional[float] = None,
-        max_x: Optional[float] = None
+        self, num_items: int, min_x: Optional[float] = None, max_x: Optional[float] = None
     ) -> float:
         """Calculate starting X position to center items in a row."""
         if min_x is None:
@@ -506,14 +447,15 @@ class LayoutEngine:
             max_x = self.config.canvas_width - self.config.padding
 
         available_width = max_x - min_x
-        total_items_width = num_items * self.config.icon_size + (num_items - 1) * self.config.icon_spacing
+        total_items_width = (
+            num_items * self.config.icon_size + (num_items - 1) * self.config.icon_spacing
+        )
         return min_x + (available_width - total_items_width) / 2
 
     def _compute_vpc_height(
         self,
         vpc_structure: "VPCStructure",
         has_vpc_services: bool = True,
-        has_services_in_subnets: bool = False,
         services_with_subnets: Optional[List[LogicalService]] = None,
     ) -> int:
         """Compute VPC box height based on subnet count, services, and endpoints.
@@ -521,7 +463,6 @@ class LayoutEngine:
         Args:
             vpc_structure: VPCStructure with availability zones, subnets, and endpoints
             has_vpc_services: Whether there are VPC services to display in top row
-            has_services_in_subnets: Whether there are services positioned inside subnets
             services_with_subnets: List of services that go inside subnets (for precise calculation)
 
         Returns:
@@ -574,22 +515,27 @@ class LayoutEngine:
 
         # Total height for subnets
         height_for_subnets = (
-            vpc_header_height +
-            services_row_height +
-            az_header_height +
-            max_az_content_height +
-            base_padding
+            vpc_header_height
+            + services_row_height
+            + az_header_height
+            + max_az_content_height
+            + base_padding
         )
 
         # Height based on endpoints (if present)
         num_endpoints = len(vpc_structure.endpoints) if vpc_structure.endpoints else 0
         endpoint_spacing = 72  # Match the actual spacing used in _layout_vpc_structure
         height_for_endpoints = (
-            vpc_header_height +
-            services_row_height +
-            (num_endpoints * endpoint_spacing) +
-            base_padding + 20
-        ) if num_endpoints > 0 else 0
+            (
+                vpc_header_height
+                + services_row_height
+                + (num_endpoints * endpoint_spacing)
+                + base_padding
+                + 20
+            )
+            if num_endpoints > 0
+            else 0
+        )
 
         return max(200, height_for_subnets, height_for_endpoints)
 
@@ -639,23 +585,16 @@ class LayoutEngine:
         az_x = vpc_pos.x + az_padding
 
         for az in vpc_structure.availability_zones:
-            az_pos = Position(
-                x=az_x,
-                y=az_y,
-                width=az_width,
-                height=az_height
-            )
+            az_pos = Position(x=az_x, y=az_y, width=az_width, height=az_height)
 
             # Create AZ group
-            az_group = ServiceGroup(
-                group_type='az',
-                name=f"AZ {az.short_name}",
-                position=az_pos
-            )
+            az_group = ServiceGroup(group_type="az", name=f"AZ {az.short_name}", position=az_pos)
             groups.append(az_group)
 
             # Layout subnets inside this AZ
-            self._layout_subnets(az, az_pos, positions, services_with_subnets, aws_id_to_resource_id)
+            self._layout_subnets(
+                az, az_pos, positions, services_with_subnets, aws_id_to_resource_id
+            )
 
             az_x += az_width + az_padding
 
@@ -670,10 +609,7 @@ class LayoutEngine:
 
             for endpoint in vpc_structure.endpoints:
                 positions[endpoint.resource_id] = Position(
-                    x=endpoint_x,
-                    y=endpoint_y,
-                    width=endpoint_box_width,
-                    height=endpoint_box_height
+                    x=endpoint_x, y=endpoint_y, width=endpoint_box_width, height=endpoint_box_height
                 )
                 endpoint_y += endpoint_spacing
 
@@ -716,7 +652,7 @@ class LayoutEngine:
                 for subnet_id in service.subnet_ids:
                     # Handle _state_subnet: prefixed IDs (from Terraform state)
                     if subnet_id.startswith("_state_subnet:"):
-                        aws_id = subnet_id[len("_state_subnet:"):]
+                        aws_id = subnet_id[len("_state_subnet:") :]
                         # Map AWS ID to resource ID if we have it
                         if aws_id in aws_id_to_resource_id:
                             resource_id = aws_id_to_resource_id[aws_id]
@@ -734,13 +670,15 @@ class LayoutEngine:
             # Total service box height: 64 + 44 = 108px, add margin = 120px
             actual_subnet_height = subnet_height
             if subnet_services:
-                actual_subnet_height = max(subnet_height, self.config.icon_size + 56)  # 64 + 56 = 120
+                actual_subnet_height = max(
+                    subnet_height, self.config.icon_size + 56
+                )  # 64 + 56 = 120
 
             positions[subnet.resource_id] = Position(
                 x=az_pos.x + subnet_padding,
                 y=subnet_y,
                 width=subnet_width,
-                height=actual_subnet_height
+                height=actual_subnet_height,
             )
 
             # Position services inside this subnet
@@ -757,46 +695,9 @@ class LayoutEngine:
                             x=service_x,
                             y=service_y,
                             width=self.config.icon_size,
-                            height=self.config.icon_size
+                            height=self.config.icon_size,
                         )
                         # Space between services: icon width + box padding (16px) + gap (10px)
                         service_x += self.config.icon_size + 26
 
             subnet_y += actual_subnet_height + subnet_padding
-
-    def compute_connection_path(
-        self,
-        source_pos: Position,
-        target_pos: Position,
-        connection_type: str = 'default'
-    ) -> str:
-        """Compute SVG path for a connection between two services."""
-        # Calculate center points
-        sx = source_pos.x + source_pos.width / 2
-        sy = source_pos.y + source_pos.height / 2
-        tx = target_pos.x + target_pos.width / 2
-        ty = target_pos.y + target_pos.height / 2
-
-        # Use straight lines with slight curves for cleaner look
-        if abs(ty - sy) > abs(tx - sx):
-            # Mostly vertical - connect top/bottom
-            if ty > sy:
-                sy = source_pos.y + source_pos.height
-                ty = target_pos.y
-            else:
-                sy = source_pos.y
-                ty = target_pos.y + target_pos.height
-        else:
-            # Mostly horizontal - connect left/right
-            if tx > sx:
-                sx = source_pos.x + source_pos.width
-                tx = target_pos.x
-            else:
-                sx = source_pos.x
-                tx = target_pos.x + target_pos.width
-
-        # Simple curved path
-        mid_x = (sx + tx) / 2
-        mid_y = (sy + ty) / 2
-
-        return f"M {sx} {sy} Q {mid_x} {sy}, {mid_x} {mid_y} Q {mid_x} {ty}, {tx} {ty}"

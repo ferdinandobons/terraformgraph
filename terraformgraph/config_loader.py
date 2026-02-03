@@ -12,11 +12,15 @@ class ConfigLoader:
     def __init__(
         self,
         aggregation_rules_path: Optional[Path] = None,
-        logical_connections_path: Optional[Path] = None
+        logical_connections_path: Optional[Path] = None,
     ):
         self._config_dir = Path(__file__).parent / "config"
-        self._aggregation_rules_path = aggregation_rules_path or self._config_dir / "aggregation_rules.yaml"
-        self._logical_connections_path = logical_connections_path or self._config_dir / "logical_connections.yaml"
+        self._aggregation_rules_path = (
+            aggregation_rules_path or self._config_dir / "aggregation_rules.yaml"
+        )
+        self._logical_connections_path = (
+            logical_connections_path or self._config_dir / "logical_connections.yaml"
+        )
 
         self._aggregation_rules: Optional[Dict[str, Any]] = None
         self._logical_connections: Optional[List[Dict[str, Any]]] = None
@@ -39,7 +43,7 @@ class ConfigLoader:
         if not path.exists():
             raise FileNotFoundError(f"Configuration file not found: {path}")
 
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
     def get_flat_aggregation_rules(self) -> Dict[str, Dict[str, Any]]:
@@ -48,8 +52,5 @@ class ConfigLoader:
         flat = {}
         for category, services in rules.items():
             for service_name, config in services.items():
-                flat[service_name] = {
-                    "category": category,
-                    **config
-                }
+                flat[service_name] = {"category": category, **config}
         return flat

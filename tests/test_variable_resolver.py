@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest
 
 from terraformgraph.variable_resolver import VariableResolver
 
@@ -24,11 +23,13 @@ class TestVariableResolverParsing:
     def test_parse_tfvars_multiple_variables(self, tmp_path):
         """Test parsing multiple variables from tfvars."""
         tfvars = tmp_path / "terraform.tfvars"
-        tfvars.write_text('''
+        tfvars.write_text(
+            """
 project_name = "my-project"
 environment = "production"
 instance_count = 3
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         assert resolver.get_variable("project_name") == "my-project"
@@ -38,7 +39,8 @@ instance_count = 3
     def test_parse_variable_defaults(self, tmp_path):
         """Test parsing variable defaults from variables.tf."""
         variables_tf = tmp_path / "variables.tf"
-        variables_tf.write_text('''
+        variables_tf.write_text(
+            """
 variable "region" {
   default = "us-east-1"
 }
@@ -46,7 +48,8 @@ variable "region" {
 variable "app_name" {
   default = "my-app"
 }
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         assert resolver.get_variable("region") == "us-east-1"
@@ -55,11 +58,13 @@ variable "app_name" {
     def test_tfvars_overrides_variable_defaults(self, tmp_path):
         """Test that tfvars values override variable defaults."""
         variables_tf = tmp_path / "variables.tf"
-        variables_tf.write_text('''
+        variables_tf.write_text(
+            """
 variable "environment" {
   default = "development"
 }
-''')
+"""
+        )
         tfvars = tmp_path / "terraform.tfvars"
         tfvars.write_text('environment = "production"\n')
 
@@ -69,12 +74,14 @@ variable "environment" {
     def test_parse_locals(self, tmp_path):
         """Test parsing locals from .tf files."""
         main_tf = tmp_path / "main.tf"
-        main_tf.write_text('''
+        main_tf.write_text(
+            """
 locals {
   service_name = "api-gateway"
   full_name = "prod-api-gateway"
 }
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         assert resolver.get_local("service_name") == "api-gateway"
@@ -114,11 +121,13 @@ class TestInterpolationResolution:
     def test_resolve_simple_local_interpolation(self, tmp_path):
         """Test resolving ${local.name} interpolation."""
         main_tf = tmp_path / "main.tf"
-        main_tf.write_text('''
+        main_tf.write_text(
+            """
 locals {
   prefix = "prod"
 }
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         result = resolver.resolve("${local.prefix}-service")
@@ -127,10 +136,12 @@ locals {
     def test_resolve_multiple_interpolations(self, tmp_path):
         """Test resolving multiple interpolations in one string."""
         tfvars = tmp_path / "terraform.tfvars"
-        tfvars.write_text('''
+        tfvars.write_text(
+            """
 env = "prod"
 app = "api"
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         result = resolver.resolve("${var.env}-${var.app}-bucket")
@@ -141,11 +152,13 @@ app = "api"
         tfvars = tmp_path / "terraform.tfvars"
         tfvars.write_text('env = "prod"\n')
         main_tf = tmp_path / "main.tf"
-        main_tf.write_text('''
+        main_tf.write_text(
+            """
 locals {
   region = "us-east-1"
 }
-''')
+"""
+        )
 
         resolver = VariableResolver(tmp_path)
         result = resolver.resolve("${var.env}-${local.region}")
@@ -234,7 +247,7 @@ class TestParserIntegration:
             resource_name="main_bucket",
             module_path="",
             attributes={"name": "${var.project}-bucket"},
-            source_file="main.tf"
+            source_file="main.tf",
         )
 
         display_name = resource.get_resolved_display_name(resolver)
@@ -253,7 +266,7 @@ class TestParserIntegration:
             resource_name="main_bucket",
             module_path="",
             attributes={"name": "${var.project}-bucket"},
-            source_file="main.tf"
+            source_file="main.tf",
         )
 
         display_name = resource.get_resolved_display_name(resolver)
@@ -270,7 +283,7 @@ class TestParserIntegration:
             resource_name="main_bucket",
             module_path="",
             attributes={"name": "static-bucket-name"},
-            source_file="main.tf"
+            source_file="main.tf",
         )
 
         display_name = resource.get_resolved_display_name(resolver)
@@ -287,7 +300,7 @@ class TestParserIntegration:
             resource_name="main_bucket",
             module_path="",
             attributes={},
-            source_file="main.tf"
+            source_file="main.tf",
         )
 
         display_name = resource.get_resolved_display_name(resolver)

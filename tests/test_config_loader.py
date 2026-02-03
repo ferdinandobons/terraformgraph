@@ -24,13 +24,15 @@ class TestConfigLoader:
 
     def test_custom_config_path(self, tmp_path):
         custom_config = tmp_path / "custom_rules.yaml"
-        custom_config.write_text("""
+        custom_config.write_text(
+            """
 compute:
   custom_service:
     primary: ["aws_custom_resource"]
     secondary: []
     in_vpc: false
-""")
+"""
+        )
         loader = ConfigLoader(aggregation_rules_path=custom_config)
         rules = loader.get_aggregation_rules()
 

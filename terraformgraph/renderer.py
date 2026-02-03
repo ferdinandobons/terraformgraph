@@ -33,7 +33,7 @@ class SVGRenderer:
         connections: List[LogicalConnection],
         groups: List[ServiceGroup],
         vpc_structure: Optional["VPCStructure"] = None,
-        actual_height: Optional[int] = None
+        actual_height: Optional[int] = None,
     ) -> str:
         """Generate SVG content for the diagram."""
         svg_parts = []
@@ -43,17 +43,19 @@ class SVGRenderer:
 
         # SVG header with responsive viewBox
         # width="100%" allows SVG to scale to container, preserveAspectRatio maintains proportions
-        svg_parts.append(f'''<svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg"
+        svg_parts.append(
+            f"""<svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg"
             xmlns:xlink="http://www.w3.org/1999/xlink"
             viewBox="0 0 {self.config.canvas_width} {canvas_height}"
-            width="100%" height="auto" preserveAspectRatio="xMidYMin meet"
-            style="max-width: {self.config.canvas_width}px; min-height: {canvas_height}px;">''')
+            width="100%" preserveAspectRatio="xMidYMin meet"
+            style="max-width: {self.config.canvas_width}px;">"""
+        )
 
         # Defs for arrows and filters
         svg_parts.append(self._render_defs())
 
         # Background
-        svg_parts.append('''<rect width="100%" height="100%" fill="#f8f9fa"/>''')
+        svg_parts.append("""<rect width="100%" height="100%" fill="#f8f9fa"/>""")
 
         # Render groups (AWS Cloud, VPC, AZ)
         for group in groups:
@@ -73,53 +75,57 @@ class SVGRenderer:
             for az in vpc_structure.availability_zones:
                 for subnet in az.subnets:
                     if subnet.resource_id in positions:
-                        svg_parts.append(self._render_subnet(
-                            subnet.resource_id,
-                            positions[subnet.resource_id],
-                            subnet
-                        ))
-            svg_parts.append('</g>')
+                        svg_parts.append(
+                            self._render_subnet(
+                                subnet.resource_id, positions[subnet.resource_id], subnet
+                            )
+                        )
+            svg_parts.append("</g>")
 
-        # Connections container (will be updated dynamically)
+        # Connections container - render individual connections
         svg_parts.append('<g id="connections-layer">')
-        for conn in connections:
-            if conn.source_id in positions and conn.target_id in positions:
-                svg_parts.append(self._render_connection(
-                    positions[conn.source_id],
-                    positions[conn.target_id],
-                    conn
-                ))
-        svg_parts.append('</g>')
+        # Create position lookup for rendering individual connections
+        for connection in connections:
+            source_pos = positions.get(connection.source_id)
+            target_pos = positions.get(connection.target_id)
+            if source_pos and target_pos:
+                svg_parts.append(self._render_connection(source_pos, target_pos, connection))
+        svg_parts.append("</g>")
 
         # Render VPC endpoints layer
         if vpc_structure:
             svg_parts.append('<g id="endpoints-layer">')
             for endpoint in vpc_structure.endpoints:
                 if endpoint.resource_id in positions:
-                    svg_parts.append(self._render_vpc_endpoint(
-                        endpoint.resource_id,
-                        positions[endpoint.resource_id],
-                        endpoint
-                    ))
-            svg_parts.append('</g>')
+                    svg_parts.append(
+                        self._render_vpc_endpoint(
+                            endpoint.resource_id, positions[endpoint.resource_id], endpoint
+                        )
+                    )
+            svg_parts.append("</g>")
 
         # Services layer
         svg_parts.append('<g id="services-layer">')
         for service in services:
             if service.id in positions:
-                svg_parts.append(self._render_service(
-                    service, positions[service.id], aws_id_to_resource_id,
-                    positions, vpc_structure
-                ))
-        svg_parts.append('</g>')
+                svg_parts.append(
+                    self._render_service(
+                        service,
+                        positions[service.id],
+                        aws_id_to_resource_id,
+                        positions,
+                        vpc_structure,
+                    )
+                )
+        svg_parts.append("</g>")
 
-        svg_parts.append('</svg>')
+        svg_parts.append("</svg>")
 
-        return '\n'.join(svg_parts)
+        return "\n".join(svg_parts)
 
     def _render_defs(self) -> str:
         """Render SVG definitions (markers, filters)."""
-        return '''
+        return """
         <defs>
             <marker id="arrowhead" markerWidth="10" markerHeight="7"
                 refX="9" refY="3.5" orient="auto">
@@ -137,27 +143,27 @@ class SVGRenderer:
                 <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
             </filter>
         </defs>
-        '''
+        """
 
     def _render_group(self, group: ServiceGroup) -> str:
         """Render a group container (AWS Cloud, VPC, AZ)."""
         if not group.position:
-            return ''
+            return ""
 
         pos = group.position
 
         # Handle AZ groups with special rendering
-        if group.group_type == 'az':
+        if group.group_type == "az":
             return self._render_az(group)
 
         colors = {
-            'aws_cloud': ('#232f3e', '#ffffff', '#232f3e'),
-            'vpc': ('#8c4fff', '#faf8ff', '#8c4fff'),
+            "aws_cloud": ("#232f3e", "#ffffff", "#232f3e"),
+            "vpc": ("#8c4fff", "#faf8ff", "#8c4fff"),
         }
 
-        border_color, bg_color, text_color = colors.get(group.group_type, ('#666', '#fff', '#666'))
+        border_color, bg_color, text_color = colors.get(group.group_type, ("#666", "#fff", "#666"))
 
-        return f'''
+        return f"""
         <g class="group group-{group.group_type}" data-group-type="{group.group_type}">
             <rect class="group-bg" x="{pos.x}" y="{pos.y}" width="{pos.width}" height="{pos.height}"
                 fill="{bg_color}" stroke="{border_color}" stroke-width="2"
@@ -168,19 +174,19 @@ class SVGRenderer:
                 font-family="Arial, sans-serif" font-size="14" font-weight="bold"
                 fill="{text_color}">{html.escape(group.name)}</text>
         </g>
-        '''
+        """
 
     def _render_az(self, group: ServiceGroup) -> str:
         """Render an Availability Zone container with dashed border."""
         if not group.position:
-            return ''
+            return ""
 
         pos = group.position
-        border_color = '#ff9900'  # AWS orange for AZ
-        bg_color = '#fff8f0'  # Light orange background
-        text_color = '#ff9900'
+        border_color = "#ff9900"  # AWS orange for AZ
+        bg_color = "#fff8f0"  # Light orange background
+        text_color = "#ff9900"
 
-        return f'''
+        return f"""
         <g class="group group-az" data-group-type="az">
             <rect class="az-bg" x="{pos.x}" y="{pos.y}" width="{pos.width}" height="{pos.height}"
                 fill="{bg_color}" stroke="{border_color}" stroke-width="1.5"
@@ -189,14 +195,9 @@ class SVGRenderer:
                 font-family="Arial, sans-serif" font-size="12" font-weight="bold"
                 fill="{text_color}">{html.escape(group.name)}</text>
         </g>
-        '''
+        """
 
-    def _render_subnet(
-        self,
-        subnet_id: str,
-        pos: Position,
-        subnet_info: "Subnet"
-    ) -> str:
+    def _render_subnet(self, subnet_id: str, pos: Position, subnet_info: "Subnet") -> str:
         """Render a colored subnet box.
 
         Colors:
@@ -206,15 +207,15 @@ class SVGRenderer:
         - unknown: gray
         """
         colors = {
-            'public': ('#22a06b', '#e3fcef'),  # Green
-            'private': ('#0052cc', '#deebff'),  # Blue
-            'database': ('#ff991f', '#fffae6'),  # Yellow/Gold
-            'unknown': ('#6b778c', '#f4f5f7'),  # Gray
+            "public": ("#22a06b", "#e3fcef"),  # Green
+            "private": ("#0052cc", "#deebff"),  # Blue
+            "database": ("#ff991f", "#fffae6"),  # Yellow/Gold
+            "unknown": ("#6b778c", "#f4f5f7"),  # Gray
         }
 
-        border_color, bg_color = colors.get(subnet_info.subnet_type, colors['unknown'])
+        border_color, bg_color = colors.get(subnet_info.subnet_type, colors["unknown"])
 
-        return f'''
+        return f"""
         <g class="subnet subnet-{subnet_info.subnet_type}" data-subnet-id="{html.escape(subnet_id)}"
             data-min-x="{pos.x}" data-min-y="{pos.y}"
             data-max-x="{pos.x + pos.width}" data-max-y="{pos.y + pos.height}">
@@ -230,13 +231,10 @@ class SVGRenderer:
                 {subnet_info.subnet_type}
             </text>
         </g>
-        '''
+        """
 
     def _render_vpc_endpoint(
-        self,
-        endpoint_id: str,
-        pos: Position,
-        endpoint_info: "VPCEndpoint"
+        self, endpoint_id: str, pos: Position, endpoint_info: "VPCEndpoint"
     ) -> str:
         """Render a VPC endpoint with AWS icon and service name.
 
@@ -246,15 +244,15 @@ class SVGRenderer:
         """
         # Colors by type
         colors = {
-            'gateway': ('#22a06b', '#e3fcef'),   # Green
-            'interface': ('#0052cc', '#deebff'),  # Blue
+            "gateway": ("#22a06b", "#e3fcef"),  # Green
+            "interface": ("#0052cc", "#deebff"),  # Blue
         }
-        border_color, bg_color = colors.get(endpoint_info.endpoint_type, colors['interface'])
+        border_color, bg_color = colors.get(endpoint_info.endpoint_type, colors["interface"])
 
         # Extract clean service name
         service_name = endpoint_info.service
-        if '.' in service_name:
-            service_name = service_name.split('.')[0]
+        if "." in service_name:
+            service_name = service_name.split(".")[0]
         service_display = service_name.upper()
 
         # Type label
@@ -268,17 +266,17 @@ class SVGRenderer:
         cx = pos.x + box_width / 2
 
         # Try to get official AWS VPC Endpoints icon
-        icon_svg = self.icon_mapper.get_icon_svg('aws_vpc_endpoint', 48)
+        icon_svg = self.icon_mapper.get_icon_svg("aws_vpc_endpoint", 48)
         icon_content = None
 
         # Check if we got a real icon (not the fallback with "RES" text)
-        if icon_svg and 'Endpoints' in icon_svg:
+        if icon_svg and "Endpoints" in icon_svg:
             icon_content = self._extract_svg_content(icon_svg)
 
         if icon_content:
             # Use official AWS icon
             icon_size = 32
-            return f'''
+            return f"""
             <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
                 <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
                     fill="white" stroke="#e0e0e0" stroke-width="1" rx="6" ry="6"
@@ -298,10 +296,10 @@ class SVGRenderer:
                 </text>
                 <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
             </g>
-            '''
+            """
         else:
             # Fallback: colored box with service name
-            return f'''
+            return f"""
             <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
                 <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
                     fill="{bg_color}" stroke="{border_color}" stroke-width="1.5" rx="6" ry="6"
@@ -318,7 +316,7 @@ class SVGRenderer:
                 </text>
                 <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
             </g>
-            '''
+            """
 
     def _render_service(
         self,
@@ -326,47 +324,49 @@ class SVGRenderer:
         pos: Position,
         aws_id_to_resource_id: Optional[Dict[str, str]] = None,
         all_positions: Optional[Dict[str, Position]] = None,
-        vpc_structure: Optional["VPCStructure"] = None
+        vpc_structure: Optional["VPCStructure"] = None,
     ) -> str:
         """Render a draggable logical service with its icon."""
         icon_svg = self.icon_mapper.get_icon_svg(service.icon_resource_type, 48)
         color = self.icon_mapper.get_category_color(service.icon_resource_type)
 
         # Count badge
-        count_badge = ''
+        count_badge = ""
         if service.count > 1:
-            count_badge = f'''
+            count_badge = f"""
             <circle class="count-badge" cx="{pos.width - 8}" cy="8" r="12"
                 fill="{color}" stroke="white" stroke-width="2"/>
             <text class="count-text" x="{pos.width - 8}" y="12"
                 font-family="Arial, sans-serif" font-size="11" fill="white"
                 text-anchor="middle" font-weight="bold">{service.count}</text>
-            '''
+            """
 
         resource_count = len(service.resources)
         tooltip = f"{service.name} ({resource_count} resources)"
 
         # Determine if this is a VPC service
-        is_vpc_service = 'true' if service.is_vpc_resource else 'false'
+        is_vpc_service = "true" if service.is_vpc_resource else "false"
 
         # Determine subnet constraint directly from service.subnet_ids
         # This ensures the drag constraint matches the service's actual subnet assignment
-        subnet_attr = ''
+        subnet_attr = ""
         if service.subnet_ids and vpc_structure and all_positions:
             # Map from AWS IDs to resource IDs for state-based lookups
             for subnet_id in service.subnet_ids:
                 resolved_id = subnet_id
                 # Handle _state_subnet: prefixed IDs (from Terraform state)
-                if subnet_id.startswith("_state_subnet:"):
-                    aws_id = subnet_id[len("_state_subnet:"):]
+                if subnet_id.startswith("_state_subnet:") and aws_id_to_resource_id:
+                    aws_id = subnet_id[len("_state_subnet:") :]
                     resolved_id = aws_id_to_resource_id.get(aws_id)
 
                 # Find the subnet that contains this service's position
                 if resolved_id and resolved_id in all_positions:
                     subnet_pos = all_positions[resolved_id]
                     # Check if service position is inside this subnet
-                    if (subnet_pos.x <= pos.x <= subnet_pos.x + subnet_pos.width and
-                        subnet_pos.y <= pos.y <= subnet_pos.y + subnet_pos.height):
+                    if (
+                        subnet_pos.x <= pos.x <= subnet_pos.x + subnet_pos.width
+                        and subnet_pos.y <= pos.y <= subnet_pos.y + subnet_pos.height
+                    ):
                         subnet_attr = f'data-subnet-id="{html.escape(resolved_id)}"'
                         break
 
@@ -374,7 +374,7 @@ class SVGRenderer:
             icon_content = self._extract_svg_content(icon_svg)
             icon_viewbox = self._extract_svg_viewbox(icon_svg)
 
-            svg = f'''
+            svg = f"""
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
@@ -392,9 +392,9 @@ class SVGRenderer:
                 </text>
                 {count_badge}
             </g>
-            '''
+            """
         else:
-            svg = f'''
+            svg = f"""
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
@@ -414,17 +414,17 @@ class SVGRenderer:
                 </text>
                 {count_badge}
             </g>
-            '''
+            """
 
         return svg
 
     def _extract_svg_content(self, svg_string: str) -> str:
         """Extract the inner content of an SVG, removing outer tags."""
-        svg_string = re.sub(r'<\?xml[^?]*\?>\s*', '', svg_string)
-        match = re.search(r'<svg[^>]*>(.*)</svg>', svg_string, re.DOTALL)
+        svg_string = re.sub(r"<\?xml[^?]*\?>\s*", "", svg_string)
+        match = re.search(r"<svg[^>]*>(.*)</svg>", svg_string, re.DOTALL)
         if match:
             return match.group(1)
-        return ''
+        return ""
 
     def _extract_svg_viewbox(self, svg_string: str) -> str:
         """Extract the viewBox attribute from an SVG string."""
@@ -435,21 +435,20 @@ class SVGRenderer:
         return "0 0 64 64"
 
     def _render_connection(
-        self,
-        source_pos: Position,
-        target_pos: Position,
-        connection: LogicalConnection
+        self, source_pos: Position, target_pos: Position, connection: LogicalConnection
     ) -> str:
         """Render a connection line between services."""
         styles = {
-            'data_flow': ('#3B48CC', '', 'url(#arrowhead-data)'),
-            'trigger': ('#E7157B', '', 'url(#arrowhead-trigger)'),
-            'encrypt': ('#6c757d', '4,4', 'url(#arrowhead)'),
-            'default': ('#999999', '', 'url(#arrowhead)'),
+            "data_flow": ("#3B48CC", "", "url(#arrowhead-data)"),
+            "trigger": ("#E7157B", "", "url(#arrowhead-trigger)"),
+            "encrypt": ("#6c757d", "4,4", "url(#arrowhead)"),
+            "default": ("#999999", "", "url(#arrowhead)"),
         }
 
-        stroke_color, stroke_dash, marker = styles.get(connection.connection_type, styles['default'])
-        dash_attr = f'stroke-dasharray="{stroke_dash}"' if stroke_dash else ''
+        stroke_color, stroke_dash, marker = styles.get(
+            connection.connection_type, styles["default"]
+        )
+        dash_attr = f'stroke-dasharray="{stroke_dash}"' if stroke_dash else ""
 
         # Calculate initial path
         half_size = self.config.icon_size / 2
@@ -481,8 +480,8 @@ class SVGRenderer:
         mid_y = (sy + ty) / 2
         path = f"M {sx} {sy} Q {mid_x} {sy}, {mid_x} {mid_y} T {tx} {ty}"
 
-        label = connection.label or ''
-        return f'''
+        label = connection.label or ""
+        return f"""
         <g class="connection" data-source="{html.escape(connection.source_id)}"
            data-target="{html.escape(connection.target_id)}"
            data-conn-type="{connection.connection_type}"
@@ -491,13 +490,13 @@ class SVGRenderer:
             <path class="connection-path" d="{path}" fill="none" stroke="{stroke_color}"
                 stroke-width="1.5" {dash_attr} marker-end="{marker}" opacity="0.7"/>
         </g>
-        '''
+        """
 
 
 class HTMLRenderer:
     """Wraps SVG in interactive HTML with drag-and-drop and export."""
 
-    HTML_TEMPLATE = '''<!DOCTYPE html>
+    HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -509,7 +508,7 @@ class HTMLRenderer:
             margin: 0;
             padding: 20px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #2d2d2d;
             min-height: 100vh;
         }}
         .container {{
@@ -586,7 +585,7 @@ class HTMLRenderer:
             background: #dee2e6;
         }}
         .diagram-container {{
-            background: white;
+            background: #f8f9fa;
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             overflow: hidden;
@@ -622,14 +621,15 @@ class HTMLRenderer:
             border-color: #ccc;
         }}
         .diagram-wrapper {{
-            padding: 20px;
-            overflow: auto;
+            padding: 10px;
+            overflow: visible;
         }}
         .diagram-wrapper svg {{
             display: block;
             margin: 0 auto;
             width: 100%;
             height: auto;
+            max-height: none;
         }}
         @media (max-width: 1200px) {{
             .header {{
@@ -700,6 +700,47 @@ class HTMLRenderer:
             stroke-width: 15;
             fill: none;
             cursor: pointer;
+        }}
+        /* Spoke connection styles */
+        .spoke-connection {{
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }}
+        .spoke-connection:hover .spoke-path {{
+            stroke-width: 4 !important;
+            opacity: 1 !important;
+        }}
+        .spoke-connection.highlighted .spoke-path {{
+            stroke-width: 4 !important;
+            opacity: 1 !important;
+        }}
+        .spoke-connection.dimmed {{
+            opacity: 0.15 !important;
+        }}
+        .spoke-hitarea {{
+            stroke: transparent;
+            stroke-width: 20;
+            fill: none;
+            cursor: pointer;
+        }}
+        /* Spoke rays - subtle lines from edge point to service icons */
+        .spoke-ray {{
+            stroke: #bbb;
+            stroke-width: 1;
+            opacity: 0.3;
+            transition: opacity 0.2s, stroke 0.2s;
+        }}
+        .spoke-rays.highlighted .spoke-ray {{
+            opacity: 0.6;
+            stroke: #888;
+        }}
+        .spoke-ray.highlighted {{
+            opacity: 0.8 !important;
+            stroke: #666 !important;
+            stroke-width: 1.5 !important;
+        }}
+        .spoke-ray.dimmed {{
+            opacity: 0.1 !important;
         }}
         .legend {{
             margin-top: 20px;
@@ -911,22 +952,22 @@ class HTMLRenderer:
                     <h4>VPC Endpoints</h4>
                     <div class="legend-items">
                         <div class="legend-item">
-                            <div class="legend-circle" style="background: #9c27b0;"></div>
-                            <span>Gateway Endpoint</span>
+                            <div class="legend-box" style="background: #e3fcef; border-color: #22a06b;"></div>
+                            <span>Gateway Endpoint (S3, DynamoDB)</span>
                         </div>
                         <div class="legend-item">
-                            <div class="legend-circle" style="background: #2196f3;"></div>
-                            <span>Interface Endpoint</span>
+                            <div class="legend-box" style="background: #deebff; border-color: #0052cc;"></div>
+                            <span>Interface Endpoint (ECR, Logs, etc.)</span>
                         </div>
                     </div>
                 </div>
                 <div class="legend-section">
-                    <h4>Instructions</h4>
+                    <h4>Interactions</h4>
                     <div class="legend-items">
+                        <div class="legend-item">Click service to highlight connections</div>
+                        <div class="legend-item">Click connection to highlight endpoints</div>
                         <div class="legend-item">Drag icons to reposition</div>
-                        <div class="legend-item">VPC services stay within VPC bounds</div>
-                        <div class="legend-item">Use Save/Load to persist layout</div>
-                        <div class="legend-item">Export as PNG or JPG for sharing</div>
+                        <div class="legend-item">Save/Load to persist layout</div>
                     </div>
                 </div>
             </div>
@@ -1065,16 +1106,23 @@ class HTMLRenderer:
                         newY = Math.max(minY, Math.min(maxY, newY));
                     }}
                 }} else {{
-                    // Constrain to AWS Cloud bounds
+                    // AWS Cloud bounds - expandable downward
                     const cloudGroup = document.querySelector('.group-aws_cloud .group-bg');
                     if (cloudGroup) {{
                         const minX = parseFloat(cloudGroup.dataset.minX) + 20;
                         const minY = parseFloat(cloudGroup.dataset.minY) + 40;
                         const maxX = parseFloat(cloudGroup.dataset.maxX) - iconSize - 20;
-                        const maxY = parseFloat(cloudGroup.dataset.maxY) - iconSize - 40;
+                        const currentMaxY = parseFloat(cloudGroup.dataset.maxY);
 
+                        // Constrain X and minY, but allow expansion downward
                         newX = Math.max(minX, Math.min(maxX, newX));
-                        newY = Math.max(minY, Math.min(maxY, newY));
+                        newY = Math.max(minY, newY);
+
+                        // Expand AWS Cloud box and canvas if dragging below current bounds
+                        const requiredBottom = newY + iconSize + 40;
+                        if (requiredBottom > currentMaxY) {{
+                            expandCanvas(requiredBottom);
+                        }}
                     }}
                 }}
 
@@ -1091,6 +1139,40 @@ class HTMLRenderer:
                     dragging.style.cursor = 'grab';
                     dragging = null;
                 }}
+            }}
+        }}
+
+        function expandCanvas(newBottom) {{
+            const svg = document.getElementById('diagram-svg');
+            const cloudGroup = document.querySelector('.group-aws_cloud .group-bg');
+
+            if (!cloudGroup || !svg) return;
+
+            // Get current viewBox
+            const viewBox = svg.getAttribute('viewBox').split(' ').map(Number);
+            const currentHeight = viewBox[3];
+
+            // Small margin below content (matching layout.py)
+            const bottomMargin = 20;
+            const padding = {icon_size} > 64 ? 45 : 30;  // Approximate padding based on scale
+            const newHeight = Math.max(currentHeight, newBottom + bottomMargin);
+
+            // Only expand if needed
+            if (newHeight <= currentHeight) return;
+
+            // Update SVG viewBox - this automatically resizes the container
+            svg.setAttribute('viewBox', `${{viewBox[0]}} ${{viewBox[1]}} ${{viewBox[2]}} ${{newHeight}}`);
+
+            // Expand AWS Cloud box to fill the entire canvas (minus margin)
+            const minY = parseFloat(cloudGroup.dataset.minY);
+            const newMaxY = newHeight - bottomMargin;
+
+            cloudGroup.dataset.maxY = newMaxY;
+
+            // Update the AWS Cloud rect to fill the space
+            const awsRect = document.querySelector('.group-aws_cloud rect');
+            if (awsRect) {{
+                awsRect.setAttribute('height', newMaxY - minY);
             }}
         }}
 
@@ -1162,7 +1244,7 @@ class HTMLRenderer:
         let currentHighlight = null;
 
         function initHighlighting() {{
-            // Click on service to highlight connections
+            // Click on service to highlight it and all connected services
             document.querySelectorAll('.service').forEach(el => {{
                 el.addEventListener('click', (e) => {{
                     // Don't process if dragging
@@ -1180,7 +1262,7 @@ class HTMLRenderer:
                 }});
             }});
 
-            // Click on connection to highlight
+            // Click on individual connection to highlight
             document.querySelectorAll('.connection').forEach(el => {{
                 el.addEventListener('click', (e) => {{
                     e.stopPropagation();
@@ -1210,17 +1292,17 @@ class HTMLRenderer:
             clearHighlights();
             currentHighlight = serviceId;
 
-            // Find all connected services
-            const connectedServices = new Set([serviceId]);
+            // Find all connections involving this service
+            const connectedServiceIds = new Set([serviceId]);
             const connectedConnections = [];
 
             document.querySelectorAll('.connection').forEach(conn => {{
-                const source = conn.dataset.source;
-                const target = conn.dataset.target;
+                const srcId = conn.dataset.source;
+                const tgtId = conn.dataset.target;
 
-                if (source === serviceId || target === serviceId) {{
-                    connectedServices.add(source);
-                    connectedServices.add(target);
+                if (srcId === serviceId || tgtId === serviceId) {{
+                    connectedServiceIds.add(srcId);
+                    connectedServiceIds.add(tgtId);
                     connectedConnections.push(conn);
                 }}
             }});
@@ -1234,22 +1316,22 @@ class HTMLRenderer:
             }});
 
             // Highlight connected services
-            connectedServices.forEach(id => {{
-                const el = document.querySelector(`[data-service-id="${{id}}"]`);
-                if (el) {{
+            document.querySelectorAll('.service').forEach(el => {{
+                const elId = el.dataset.serviceId;
+                if (connectedServiceIds.has(elId)) {{
                     el.classList.remove('dimmed');
                     el.classList.add('highlighted');
                 }}
             }});
 
-            // Highlight connected connections
+            // Highlight connections
             connectedConnections.forEach(conn => {{
                 conn.classList.remove('dimmed');
                 conn.classList.add('highlighted');
             }});
 
             // Show info tooltip
-            showHighlightInfo(serviceId, connectedServices.size - 1, connectedConnections.length);
+            showHighlightInfo(serviceId, connectedServiceIds.size - 1, connectedConnections.length);
         }}
 
         function highlightConnection(connEl, sourceId, targetId) {{
@@ -1447,7 +1529,7 @@ class HTMLRenderer:
         }});
     </script>
 </body>
-</html>'''
+</html>"""
 
     def __init__(self, svg_renderer: SVGRenderer):
         self.svg_renderer = svg_renderer
@@ -1457,8 +1539,8 @@ class HTMLRenderer:
         aggregated: AggregatedResult,
         positions: Dict[str, Position],
         groups: List[ServiceGroup],
-        environment: str = 'dev',
-        actual_height: Optional[int] = None
+        environment: str = "dev",
+        actual_height: Optional[int] = None,
     ) -> str:
         """Generate complete HTML page with interactive diagram."""
         svg_content = self.svg_renderer.render_svg(
@@ -1467,7 +1549,7 @@ class HTMLRenderer:
             aggregated.connections,
             groups,
             vpc_structure=aggregated.vpc_structure,
-            actual_height=actual_height
+            actual_height=actual_height,
         )
 
         total_resources = sum(len(s.resources) for s in aggregated.services)
@@ -1478,7 +1560,7 @@ class HTMLRenderer:
             resource_count=total_resources,
             connection_count=len(aggregated.connections),
             environment=environment,
-            icon_size=self.svg_renderer.config.icon_size
+            icon_size=self.svg_renderer.config.icon_size,
         )
 
         return html_content

@@ -65,14 +65,16 @@ class VPCStructure:
 @dataclass
 class LogicalService:
     """A high-level logical service aggregating multiple resources."""
+
     service_type: str  # e.g., 'alb', 'ecs', 's3', 'sqs'
     name: str
     icon_resource_type: str  # The Terraform type to use for the icon
     resources: List[TerraformResource] = field(default_factory=list)
     count: int = 1  # How many instances (e.g., 24 SQS queues)
     is_vpc_resource: bool = False
-    attributes: Dict[str, str] = field(default_factory=dict)
-    subnet_ids: List[str] = field(default_factory=list)  # Subnet resource IDs this service belongs to
+    subnet_ids: List[str] = field(
+        default_factory=list
+    )  # Subnet resource IDs this service belongs to
     resource_id: Optional[str] = None  # For de-grouped VPC services, uses resource's full_id
 
     @property
@@ -86,10 +88,11 @@ class LogicalService:
 @dataclass
 class LogicalConnection:
     """A connection between logical services."""
+
     source_id: str
     target_id: str
     label: Optional[str] = None
-    connection_type: str = 'default'  # 'default', 'data_flow', 'trigger', 'encrypt'
+    connection_type: str = "default"  # 'default', 'data_flow', 'trigger', 'encrypt'
 
 
 @dataclass
@@ -119,11 +122,13 @@ class ResourceAggregator:
         for service_name, config in flat_rules.items():
             # Map YAML format (primary/secondary/in_vpc) to internal format
             result[service_name] = {
-                'primary': config.get("primary", []),
-                'aggregate': config.get("secondary", []),  # secondary in YAML -> aggregate internally
-                'icon': config.get("primary", [""])[0] if config.get("primary") else "",
-                'display_name': service_name.replace("_", " ").title(),
-                'is_vpc': config.get("in_vpc", False),
+                "primary": config.get("primary", []),
+                "aggregate": config.get(
+                    "secondary", []
+                ),  # secondary in YAML -> aggregate internally
+                "icon": config.get("primary", [""])[0] if config.get("primary") else "",
+                "display_name": service_name.replace("_", " ").title(),
+                "is_vpc": config.get("in_vpc", False),
             }
         return result
 
@@ -131,9 +136,9 @@ class ResourceAggregator:
         """Build a mapping from resource type to aggregation rule."""
         self._type_to_rule: Dict[str, str] = {}
         for rule_name, rule in self._aggregation_rules.items():
-            for res_type in rule['primary']:
+            for res_type in rule["primary"]:
                 self._type_to_rule[res_type] = rule_name
-            for res_type in rule['aggregate']:
+            for res_type in rule["aggregate"]:
                 self._type_to_rule[res_type] = rule_name
 
     def _extract_subnet_ids(
@@ -158,6 +163,7 @@ class ResourceAggregator:
         state_index: Dict[str, Dict[str, Any]] = {}
         if state_result:
             from .terraform_tools import map_state_to_resource_id
+
             for state_res in state_result.resources:
                 resource_id = map_state_to_resource_id(state_res.address)
                 state_index[resource_id] = state_res.values
@@ -189,7 +195,6 @@ class ResourceAggregator:
 
             # Check HCL attributes for references like aws_subnet.public.id
             # Search in common attribute names and nested structures
-            import re
             self._extract_subnet_refs_from_attrs(resource.attributes, subnet_ids)
 
         return list(subnet_ids)
@@ -209,8 +214,6 @@ class ResourceAggregator:
             subnet_ids: Set to add found subnet IDs to
             depth: Current recursion depth (max 5 to prevent infinite loops)
         """
-        import re
-
         if depth > 5:
             return
 
@@ -228,7 +231,7 @@ class ResourceAggregator:
                 self._extract_subnet_refs_from_attrs(item, subnet_ids, depth + 1)
         elif isinstance(attrs, str):
             # Look for aws_subnet.name references
-            for match in re.finditer(r'aws_subnet\.(\w+)', attrs):
+            for match in re.finditer(r"aws_subnet\.(\w+)", attrs):
                 subnet_name = match.group(1)
                 subnet_ids.add(f"aws_subnet.{subnet_name}")
 
@@ -247,7 +250,7 @@ class ResourceAggregator:
             Human-readable display name for the resource
         """
         # Try to get name from attributes or use resource_name
-        attr_name = resource.attributes.get('name', '')
+        attr_name = resource.attributes.get("name", "")
         fallback_name = resource.resource_name
 
         display_name = fallback_name
@@ -258,15 +261,15 @@ class ResourceAggregator:
             if resolver:
                 resolved_name = resolver.resolve(attr_name)
                 # If still contains ${, fall back to resource name
-                if '${' not in resolved_name:
+                if "${" not in resolved_name:
                     display_name = resolved_name
             else:
                 # If it doesn't contain ${, use attr_name
-                if '${' not in attr_name:
+                if "${" not in attr_name:
                     display_name = attr_name
 
         # Clean up underscore-based names to be more readable
-        display_name = display_name.replace('_', ' ').title()
+        display_name = display_name.replace("_", " ").title()
 
         # Truncate long names
         if len(display_name) > 20:
@@ -295,27 +298,24 @@ class ResourceAggregator:
         resolver = None
         if terraform_dir is not None:
             from .variable_resolver import VariableResolver
+
             resolver = VariableResolver(terraform_dir)
 
         # Group resources by aggregation rule
         rule_resources: Dict[str, List[TerraformResource]] = {}
-        unmatched: List[TerraformResource] = []
 
         for resource in parse_result.resources:
             rule_name = self._type_to_rule.get(resource.resource_type)
             if rule_name:
                 rule_resources.setdefault(rule_name, []).append(resource)
-            else:
-                unmatched.append(resource)
 
         # Create logical services from grouped resources
         for rule_name, resources in rule_resources.items():
             rule = self._aggregation_rules[rule_name]
 
             # Count primary resources
-            primary_resources = [r for r in resources if r.resource_type in rule['primary']]
-            primary_count = len(primary_resources)
-            if primary_count == 0:
+            primary_resources = [r for r in resources if r.resource_type in rule["primary"]]
+            if not primary_resources:
                 continue  # Skip if no primary resources
 
             # De-group ALL resources - create one LogicalService per primary resource
@@ -329,16 +329,16 @@ class ResourceAggregator:
                 service = LogicalService(
                     service_type=rule_name,
                     name=display_name,
-                    icon_resource_type=rule['icon'],
+                    icon_resource_type=rule["icon"],
                     resources=[resource],  # Single resource
                     count=1,
-                    is_vpc_resource=rule['is_vpc'],
+                    is_vpc_resource=rule["is_vpc"],
                     subnet_ids=subnet_ids,
                     resource_id=resource.full_id,  # Unique ID for this resource
                 )
 
                 result.services.append(service)
-                if rule['is_vpc']:
+                if rule["is_vpc"]:
                     result.vpc_services.append(service)
                 else:
                     result.global_services.append(service)
@@ -358,12 +358,14 @@ class ResourceAggregator:
                 # Connect each source to each target of matching type
                 for source_service in source_services:
                     for target_service in target_services:
-                        result.connections.append(LogicalConnection(
-                            source_id=source_service.id,
-                            target_id=target_service.id,
-                            label=conn.get("label", ""),
-                            connection_type=conn.get("type", "default"),
-                        ))
+                        result.connections.append(
+                            LogicalConnection(
+                                source_id=source_service.id,
+                                target_id=target_service.id,
+                                label=conn.get("label", ""),
+                                connection_type=conn.get("type", "default"),
+                            )
+                        )
 
         # Build VPC structure if resolver is available
         if resolver is not None:
@@ -395,13 +397,19 @@ class VPCStructureBuilder:
     # Patterns for detecting subnet type from name/tags
     SUBNET_TYPE_PATTERNS: Dict[str, List[str]] = {
         "public": ["public", "pub", "external", "ext", "dmz", "bastion"],
-        "private": ["private", "priv", "internal", "int", "app", "compute", "worker", "backend", "application"],
+        "private": [
+            "private",
+            "priv",
+            "internal",
+            "int",
+            "app",
+            "compute",
+            "worker",
+            "backend",
+            "application",
+        ],
         "database": ["database", "db", "rds", "data", "storage", "persistence"],
     }
-
-    def __init__(self) -> None:
-        """Initialize the VPCStructureBuilder."""
-        pass
 
     def _detect_availability_zone(
         self, resource: TerraformResource, sequential_index: Optional[int] = None
@@ -517,9 +525,6 @@ class VPCStructureBuilder:
         # com.amazonaws.${var.aws_region}.s3
 
         # Strategy: take the last part(s) after the last known prefix
-        # Remove any variable interpolation patterns
-        clean_name = service_name
-
         # If there's a variable pattern, extract service from the end
         if "${" in service_name:
             # Find the service after the variable - typically the last segment
@@ -593,8 +598,8 @@ class VPCStructureBuilder:
         # Pattern priority: more specific patterns first
         patterns = [
             r"[-_](\d[a-f])$",  # ends with -1a, -1b, _2a
-            r"[-_](\d+)$",      # ends with -1, -2, _3
-            r"[-_]([a-f])$",    # ends with -a, -b, _c
+            r"[-_](\d+)$",  # ends with -1, -2, _3
+            r"[-_]([a-f])$",  # ends with -a, -b, _c
         ]
 
         for pattern in patterns:
@@ -627,6 +632,7 @@ class VPCStructureBuilder:
         state_index: Dict[str, Dict[str, Any]] = {}
         if state_result:
             from .terraform_tools import map_state_to_resource_id
+
             for state_res in state_result.resources:
                 resource_id = map_state_to_resource_id(state_res.address)
                 state_index[resource_id] = state_res.values
@@ -714,7 +720,11 @@ class VPCStructureBuilder:
 
             # If no count, use number of distinct detected AZs or subnet count
             if num_azs == 1:
-                detected_azs = set(az_key for _, _, az_key in all_subnets if az_key and az_key.startswith("detected-"))
+                detected_azs = set(
+                    az_key
+                    for _, _, az_key in all_subnets
+                    if az_key and az_key.startswith("detected-")
+                )
                 if detected_azs:
                     num_azs = len(detected_azs)
                 else:
@@ -744,7 +754,9 @@ class VPCStructureBuilder:
         type_order = {"public": 0, "private": 1, "database": 2, "unknown": 3}
         unassigned: List[Subnet] = []
 
-        for r, subnet, az_key in sorted(all_subnets, key=lambda x: (type_order.get(x[1].subnet_type, 3), x[1].name)):
+        for r, subnet, az_key in sorted(
+            all_subnets, key=lambda x: (type_order.get(x[1].subnet_type, 3), x[1].name)
+        ):
             if az_key and az_key in az_map:
                 az_map[az_key].subnets.append(subnet)
             elif az_key and az_key.startswith("detected-"):
@@ -770,7 +782,9 @@ class VPCStructureBuilder:
 
             # Distribute each type across AZs
             az_letters = "abcdef"
-            for subnet_type in sorted(unassigned_by_type.keys(), key=lambda t: type_order.get(t, 3)):
+            for subnet_type in sorted(
+                unassigned_by_type.keys(), key=lambda t: type_order.get(t, 3)
+            ):
                 for idx, subnet in enumerate(unassigned_by_type[subnet_type]):
                     az_idx = idx % len(availability_zones)
                     # Add AZ indicator to name if distributing multiple of same type
@@ -802,9 +816,3 @@ class VPCStructureBuilder:
             availability_zones=availability_zones,
             endpoints=endpoints,
         )
-
-
-def aggregate_resources(parse_result: ParseResult) -> AggregatedResult:
-    """Convenience function to aggregate resources."""
-    aggregator = ResourceAggregator()
-    return aggregator.aggregate(parse_result)

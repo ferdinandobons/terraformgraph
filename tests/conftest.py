@@ -14,5 +14,5 @@ def example_dir() -> Path:
 @pytest.fixture
 def simple_example(example_dir) -> Path:
     """Return path to example (used by integration tests)."""
-    # Use prod environment which has the most complete terraform files
-    return example_dir / "infrastructure" / "prod"
+    # Use vpc-demo which has complete terraform files
+    return example_dir / "vpc-demo"
