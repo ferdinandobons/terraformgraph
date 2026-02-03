@@ -592,6 +592,12 @@ resource "aws_lambda_function" "api_handler" {
   source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
   runtime          = "nodejs18.x"
 
+  environment {
+    variables = {
+      ASSETS_BUCKET = aws_s3_bucket.assets.id
+    }
+  }
+
   tags = {
     Name        = "${var.environment}-api-handler"
     Environment = var.environment
@@ -606,6 +612,12 @@ resource "aws_lambda_function" "event_processor" {
   source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
   runtime          = "nodejs18.x"
 
+  environment {
+    variables = {
+      LOG_BUCKET = aws_s3_bucket.logs.id
+    }
+  }
+
   tags = {
     Name        = "${var.environment}-event-processor"
     Environment = var.environment
@@ -619,6 +631,12 @@ resource "aws_lambda_function" "notification_sender" {
   handler          = "index.handler"
   source_code_hash = data.archive_file.lambda_placeholder.output_base64sha256
   runtime          = "nodejs18.x"
+
+  environment {
+    variables = {
+      BACKUP_BUCKET = aws_s3_bucket.backups.id
+    }
+  }
 
   tags = {
     Name        = "${var.environment}-notification-sender"

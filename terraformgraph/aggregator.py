@@ -31,6 +31,7 @@ class Subnet:
     availability_zone: str
     cidr_block: Optional[str] = None
     aws_id: Optional[str] = None  # AWS subnet ID (e.g., 'subnet-xxx') from state
+    route_table_name: Optional[str] = None
 
 
 @dataclass
@@ -349,10 +350,45 @@ class ResourceAggregator:
         for s in result.services:
             services_by_type.setdefault(s.service_type, []).append(s)
 
+        # Build index: resource_full_id -> service for mapping parsed relationships
+        resource_to_service: Dict[str, LogicalService] = {}
+        for service in result.services:
+            for resource in service.resources:
+                resource_to_service[resource.full_id] = service
+
+        # Create connections from parsed 'references' relationships (specific per-resource)
+        # Track which (source_type, target_type) pairs have parsed connections
+        parsed_type_pairs: Set[Tuple[str, str]] = set()
+        connected_pairs: Set[Tuple[str, str]] = set()
+        for rel in parse_result.relationships:
+            if rel.relationship_type != "references":
+                continue
+            src_svc = resource_to_service.get(rel.source_id)
+            tgt_svc = resource_to_service.get(rel.target_id)
+            if not src_svc or not tgt_svc:
+                continue
+            pair = (src_svc.id, tgt_svc.id)
+            if pair in connected_pairs:
+                continue
+            connected_pairs.add(pair)
+            parsed_type_pairs.add((src_svc.service_type, tgt_svc.service_type))
+            result.connections.append(
+                LogicalConnection(
+                    source_id=src_svc.id,
+                    target_id=tgt_svc.id,
+                    label="",
+                    connection_type="default",
+                )
+            )
+
+        # Create YAML logical connections, skipping type pairs that have parsed connections
         for conn in self._logical_connections:
             source_type = conn.get("source", "")
             target_type = conn.get("target", "")
             if source_type in services_by_type and target_type in services_by_type:
+                # Skip if parsed relationships already provide specific connections
+                if (source_type, target_type) in parsed_type_pairs:
+                    continue
                 source_services = services_by_type[source_type]
                 target_services = services_by_type[target_type]
                 # Connect each source to each target of matching type
@@ -376,7 +412,110 @@ class ResourceAggregator:
                 state_result=state_result,
             )
 
+        # Create network flow connections (IGW <-> NAT Gateway)
+        self._create_network_flow_connections(result, services_by_type)
+
+        # Create security rule connections from SG cross-references
+        self._create_sg_connections(result, parse_result)
+
         return result
+
+    @staticmethod
+    def _create_network_flow_connections(
+        result: AggregatedResult,
+        services_by_type: Dict[str, List["LogicalService"]],
+    ) -> None:
+        """Create network flow connections between IGW and NAT Gateway."""
+        igw_services = services_by_type.get("internet_gateway", [])
+        nat_services = services_by_type.get("nat_gateway", [])
+
+        if not igw_services or not nat_services:
+            return
+
+        # Connect NAT Gateway -> IGW (arrow points at IGW, showing public route path)
+        for igw in igw_services:
+            for nat in nat_services:
+                result.connections.append(
+                    LogicalConnection(
+                        source_id=nat.id,
+                        target_id=igw.id,
+                        label="Public Route",
+                        connection_type="network_flow",
+                    )
+                )
+
+    @staticmethod
+    def _create_sg_connections(
+        result: AggregatedResult,
+        parse_result: "ParseResult",
+    ) -> None:
+        """Create security_rule connections between services based on SG cross-references.
+
+        Maps sg_allows_from relationships (SG-to-SG) to connections between the
+        services that USE those security groups.
+        """
+        # Build index: resource_full_id -> service_id
+        resource_to_service: Dict[str, str] = {}
+        for service in result.services:
+            for resource in service.resources:
+                resource_to_service[resource.full_id] = service.id
+
+        # Build map: sg_resource_id -> [service_ids that reference it]
+        sg_to_services: Dict[str, List[str]] = {}
+        for rel in parse_result.relationships:
+            if rel.relationship_type == "uses_security_group":
+                svc_id = resource_to_service.get(rel.source_id)
+                if svc_id:
+                    sg_to_services.setdefault(rel.target_id, []).append(svc_id)
+
+        # For each sg_allows_from relationship, create connections between services
+        seen: Set[Tuple[str, str]] = set()
+        for rel in parse_result.relationships:
+            if rel.relationship_type != "sg_allows_from":
+                continue
+
+            source_sg = rel.source_id  # SG that is allowed FROM
+            target_sg = rel.target_id  # SG that allows traffic
+
+            source_services = sg_to_services.get(source_sg, [])
+            target_services = sg_to_services.get(target_sg, [])
+
+            # Connect services that use these SGs to each other
+            for src_svc_id in source_services:
+                for tgt_svc_id in target_services:
+                    # Skip self-referencing (same service)
+                    if src_svc_id == tgt_svc_id:
+                        continue
+                    # Deduplicate
+                    key = (src_svc_id, tgt_svc_id)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
+                    result.connections.append(
+                        LogicalConnection(
+                            source_id=src_svc_id,
+                            target_id=tgt_svc_id,
+                            label=rel.label or "",
+                            connection_type="security_rule",
+                        )
+                    )
+
+            # Also connect the SG nodes directly (if they are services)
+            source_sg_svc = resource_to_service.get(source_sg)
+            target_sg_svc = resource_to_service.get(target_sg)
+            if source_sg_svc and target_sg_svc and source_sg_svc != target_sg_svc:
+                key = (source_sg_svc, target_sg_svc)
+                if key not in seen:
+                    seen.add(key)
+                    result.connections.append(
+                        LogicalConnection(
+                            source_id=source_sg_svc,
+                            target_id=target_sg_svc,
+                            label=rel.label or "",
+                            connection_type="security_rule",
+                        )
+                    )
 
     @staticmethod
     def get_aggregation_metadata(
@@ -643,6 +782,49 @@ class VPCStructureBuilder:
 
         return None
 
+    def _resolve_route_table_names(
+        self,
+        resources: List[TerraformResource],
+        availability_zones: List[AvailabilityZone],
+    ) -> None:
+        """Resolve route table names for subnets via route table associations."""
+        # Build route table name lookup: resource_id -> name
+        rt_names: Dict[str, str] = {}
+        for r in resources:
+            if r.resource_type == "aws_route_table":
+                name = r.attributes.get("name", r.resource_name)
+                rt_names[r.full_id] = name
+
+        # Build subnet -> route table mapping from associations
+        subnet_to_rt: Dict[str, str] = {}
+        for r in resources:
+            if r.resource_type == "aws_route_table_association":
+                attrs = r.attributes
+                # Find subnet reference
+                subnet_ref = self._extract_ref(attrs.get("subnet_id", ""))
+                rt_ref = self._extract_ref(attrs.get("route_table_id", ""))
+                if subnet_ref and rt_ref and rt_ref in rt_names:
+                    subnet_to_rt[subnet_ref] = rt_names[rt_ref]
+
+        # Apply to subnet objects
+        for az in availability_zones:
+            for subnet in az.subnets:
+                if subnet.resource_id in subnet_to_rt:
+                    subnet.route_table_name = subnet_to_rt[subnet.resource_id]
+
+    @staticmethod
+    def _extract_ref(value: Any) -> Optional[str]:
+        """Extract a Terraform resource reference from an attribute value."""
+        if not isinstance(value, str):
+            return None
+        # Match pattern: aws_type.name.id or ${aws_type.name.id}
+        import re
+
+        match = re.search(r"(aws_\w+\.\w+)", value)
+        if match:
+            return match.group(1)
+        return None
+
     def build(
         self,
         resources: List[TerraformResource],
@@ -843,6 +1025,9 @@ class VPCStructureBuilder:
                 service=self._detect_endpoint_service(r),
             )
             endpoints.append(endpoint)
+
+        # Resolve route table associations for subnets
+        self._resolve_route_table_names(resources, availability_zones)
 
         return VPCStructure(
             vpc_id=vpc_resource.full_id,

@@ -102,6 +102,8 @@ class TerraformParser:
         "subnet_id": ("deployed_in_subnet", "aws_subnet"),
         "subnet_ids": ("deployed_in_subnets", "aws_subnet"),
         "security_group_ids": ("uses_security_group", "aws_security_group"),
+        "vpc_security_group_ids": ("uses_security_group", "aws_security_group"),
+        "security_groups": ("uses_security_group", "aws_security_group"),
         "kms_master_key_id": ("encrypted_by", "aws_kms_key"),
         "kms_key_id": ("encrypted_by", "aws_kms_key"),
         "target_group_arn": ("routes_to", "aws_lb_target_group"),
@@ -328,6 +330,55 @@ class TerraformParser:
                             )
                         )
 
+            # Deep scan: find resource references in ALL attributes (catches nested refs
+            # like environment.variables that RELATIONSHIP_EXTRACTORS miss)
+            self._extract_deep_references(resource, result, type_index)
+
+            # Check for security group cross-references
+            self._extract_sg_cross_references(resource, result, type_index)
+
+    # Resource types excluded from deep scan (infrastructure plumbing, not logical connections)
+    _DEEP_SCAN_EXCLUDED_TYPES = frozenset({
+        "aws_security_group", "aws_iam_role", "aws_iam_policy",
+        "aws_subnet", "aws_vpc", "aws_route_table", "aws_route_table_association",
+        "aws_eip", "aws_network_interface",
+    })
+
+    def _extract_deep_references(
+        self,
+        resource: TerraformResource,
+        result: ParseResult,
+        type_index: Dict[str, List[TerraformResource]],
+    ) -> None:
+        """Scan all attribute values for resource references not caught by RELATIONSHIP_EXTRACTORS."""
+        # Build set of already-known targets to avoid duplicates
+        known_targets: set = set()
+        for rel in result.relationships:
+            if rel.source_id == resource.full_id:
+                known_targets.add(rel.target_id)
+
+        # Convert entire attributes dict to string and scan for all known resource types
+        attrs_str = str(resource.attributes)
+        for target_type, resources_of_type in type_index.items():
+            if target_type == resource.resource_type:
+                continue  # Skip self-type references
+            if target_type in self._DEEP_SCAN_EXCLUDED_TYPES:
+                continue  # Skip infrastructure plumbing types
+            pattern = rf"{re.escape(target_type)}\.(\w+)\."
+            for match in re.finditer(pattern, attrs_str):
+                res_name = match.group(1)
+                for target_res in resources_of_type:
+                    if target_res.resource_name == res_name and target_res.full_id not in known_targets:
+                        known_targets.add(target_res.full_id)
+                        result.relationships.append(
+                            ResourceRelationship(
+                                source_id=resource.full_id,
+                                target_id=target_res.full_id,
+                                relationship_type="references",
+                            )
+                        )
+                        break
+
     def _extract_dlq_relationship(
         self,
         resource: TerraformResource,
@@ -359,6 +410,149 @@ class TerraformParser:
                             )
                         )
                         break
+
+    def _extract_sg_cross_references(
+        self,
+        resource: TerraformResource,
+        result: ParseResult,
+        type_index: Dict[str, List[TerraformResource]],
+    ) -> None:
+        """Extract security group cross-references from ingress rules.
+
+        Creates sg_allows_from relationships when a security group rule
+        references another security group as its source.
+        """
+        sg_resources = type_index.get("aws_security_group", [])
+        if not sg_resources:
+            return
+
+        # Case 1: Inline ingress rules in aws_security_group
+        if resource.resource_type == "aws_security_group":
+            ingress_rules = resource.attributes.get("ingress", [])
+            if not isinstance(ingress_rules, list):
+                return
+            for rule in ingress_rules:
+                if not isinstance(rule, dict):
+                    continue
+                self._process_sg_rule(
+                    rule, resource.full_id, result, sg_resources, is_inline=True
+                )
+
+        # Case 2: Standalone aws_security_group_rule with type=ingress
+        elif resource.resource_type == "aws_security_group_rule":
+            if resource.attributes.get("type") != "ingress":
+                return
+            # The SG this rule belongs to
+            sg_id_attr = resource.attributes.get("security_group_id", "")
+            target_sg = self._resolve_sg_ref(str(sg_id_attr), sg_resources)
+            if not target_sg:
+                return
+            source_ref = resource.attributes.get("source_security_group_id", "")
+            source_sg = self._resolve_sg_ref(str(source_ref), sg_resources)
+            if source_sg and source_sg.full_id != target_sg.full_id:
+                port_label = self._format_port_label(resource.attributes)
+                result.relationships.append(
+                    ResourceRelationship(
+                        source_id=source_sg.full_id,
+                        target_id=target_sg.full_id,
+                        relationship_type="sg_allows_from",
+                        label=port_label,
+                    )
+                )
+
+        # Case 3: aws_vpc_security_group_ingress_rule
+        elif resource.resource_type == "aws_vpc_security_group_ingress_rule":
+            sg_id_attr = resource.attributes.get("security_group_id", "")
+            target_sg = self._resolve_sg_ref(str(sg_id_attr), sg_resources)
+            if not target_sg:
+                return
+            source_ref = resource.attributes.get(
+                "referenced_security_group_id", ""
+            )
+            source_sg = self._resolve_sg_ref(str(source_ref), sg_resources)
+            if source_sg and source_sg.full_id != target_sg.full_id:
+                port_label = self._format_port_label(resource.attributes)
+                result.relationships.append(
+                    ResourceRelationship(
+                        source_id=source_sg.full_id,
+                        target_id=target_sg.full_id,
+                        relationship_type="sg_allows_from",
+                        label=port_label,
+                    )
+                )
+
+    def _process_sg_rule(
+        self,
+        rule: dict,
+        sg_full_id: str,
+        result: ParseResult,
+        sg_resources: List[TerraformResource],
+        is_inline: bool = True,
+    ) -> None:
+        """Process a single SG ingress rule for cross-references."""
+        # Look for security_groups list (inline rules use this)
+        sg_refs = rule.get("security_groups", [])
+        if not isinstance(sg_refs, list):
+            sg_refs = [sg_refs] if sg_refs else []
+
+        for ref in sg_refs:
+            source_sg = self._resolve_sg_ref(str(ref), sg_resources)
+            if source_sg and source_sg.full_id != sg_full_id:
+                port_label = self._format_port_label(rule)
+                result.relationships.append(
+                    ResourceRelationship(
+                        source_id=source_sg.full_id,
+                        target_id=sg_full_id,
+                        relationship_type="sg_allows_from",
+                        label=port_label,
+                    )
+                )
+
+    @staticmethod
+    def _resolve_sg_ref(
+        value: str, sg_resources: List[TerraformResource]
+    ) -> Optional[TerraformResource]:
+        """Resolve a security group reference to a TerraformResource."""
+        if not value:
+            return None
+        match = re.search(r"aws_security_group\.(\w+)", value)
+        if match:
+            name = match.group(1)
+            for sg in sg_resources:
+                if sg.resource_name == name:
+                    return sg
+        return None
+
+    @staticmethod
+    def _format_port_label(attrs: dict) -> str:
+        """Format a port label from rule attributes (e.g., 'TCP/80')."""
+        from_port = attrs.get("from_port")
+        to_port = attrs.get("to_port")
+        protocol = attrs.get("protocol", "tcp")
+
+        if from_port is None:
+            return ""
+
+        # Coerce ports to int (HCL2 may return strings in some contexts)
+        try:
+            from_port = int(from_port)
+        except (TypeError, ValueError):
+            pass
+        try:
+            to_port = int(to_port)
+        except (TypeError, ValueError):
+            pass
+
+        if isinstance(protocol, str):
+            protocol = protocol.upper()
+            if protocol == "-1":
+                return "All Traffic"
+
+        if from_port == to_port or to_port is None:
+            return f"{protocol}/{from_port}"
+        if from_port == 0 and to_port == 65535:
+            return f"{protocol}/All"
+        return f"{protocol}/{from_port}-{to_port}"
 
     def _find_referenced_resources(
         self, value: Any, target_type: str, type_index: Dict[str, List[TerraformResource]]

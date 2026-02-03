@@ -148,6 +148,14 @@ class SVGRenderer:
                 refX="9" refY="3.5" orient="auto">
                 <polygon points="0 0, 10 3.5, 0 7" fill="#E7157B"/>
             </marker>
+            <marker id="arrowhead-network" markerWidth="10" markerHeight="7"
+                refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#0d7c3f"/>
+            </marker>
+            <marker id="arrowhead-security" markerWidth="10" markerHeight="7"
+                refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#d97706"/>
+            </marker>
             <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                 <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
             </filter>
@@ -224,6 +232,15 @@ class SVGRenderer:
 
         border_color, bg_color = colors.get(subnet_info.subnet_type, colors["unknown"])
 
+        rt_label = ""
+        if subnet_info.route_table_name:
+            rt_label = f"""
+            <text x="{pos.x + pos.width - 8}" y="{pos.y + pos.height/2 + 16}"
+                font-family="Arial, sans-serif" font-size="9" fill="#999"
+                text-anchor="end" opacity="0.6">
+                RT: {html.escape(subnet_info.route_table_name)}
+            </text>"""
+
         return f"""
         <g class="subnet subnet-{subnet_info.subnet_type}" data-subnet-id="{html.escape(subnet_id)}"
             data-min-x="{pos.x}" data-min-y="{pos.y}"
@@ -237,8 +254,8 @@ class SVGRenderer:
             <text x="{pos.x + pos.width - 8}" y="{pos.y + pos.height/2 + 4}"
                 font-family="Arial, sans-serif" font-size="10" fill="{border_color}"
                 text-anchor="end" opacity="0.7">
-                {subnet_info.subnet_type}
-            </text>
+                {html.escape(subnet_info.cidr_block) if subnet_info.cidr_block else subnet_info.subnet_type}
+            </text>{rt_label}
         </g>
         """
 
@@ -457,6 +474,8 @@ class SVGRenderer:
             "data_flow": ("#3B48CC", "", "url(#arrowhead-data)"),
             "trigger": ("#E7157B", "", "url(#arrowhead-trigger)"),
             "encrypt": ("#6c757d", "4,4", "url(#arrowhead)"),
+            "network_flow": ("#0d7c3f", "", "url(#arrowhead-network)"),
+            "security_rule": ("#d97706", "2,4", "url(#arrowhead-security)"),
             "default": ("#999999", "", "url(#arrowhead)"),
         }
 
@@ -1124,6 +1143,14 @@ class HTMLRenderer:
                             <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-ref" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#999"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#999" stroke-width="2" marker-end="url(#lm-ref)"/></svg></div>
                             <span>Reference</span>
                         </div>
+                        <div class="legend-item">
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-network" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0d7c3f"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#0d7c3f" stroke-width="2" marker-end="url(#lm-network)"/></svg></div>
+                            <span>Network Flow</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-security" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#d97706"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#d97706" stroke-width="2" stroke-dasharray="2,4" marker-end="url(#lm-security)"/></svg></div>
+                            <span>Security Rule</span>
+                        </div>
                     </div>
                 </div>
                 <div class="legend-section">
@@ -1301,6 +1328,29 @@ class HTMLRenderer:
 
                         newX = Math.max(minX, Math.min(maxX, newX));
                         newY = Math.max(minY, Math.min(maxY, newY));
+
+                        // VPC services without subnet assignment cannot enter subnet areas
+                        if (!dragging.dataset.subnetId) {{
+                            document.querySelectorAll('.subnet').forEach(sub => {{
+                                const sMinX = parseFloat(sub.dataset.minX);
+                                const sMinY = parseFloat(sub.dataset.minY);
+                                const sMaxX = parseFloat(sub.dataset.maxX);
+                                const sMaxY = parseFloat(sub.dataset.maxY);
+                                const nodeR = newX + iconSize;
+                                const nodeB = newY + iconSize;
+                                if (nodeR > sMinX && newX < sMaxX && nodeB > sMinY && newY < sMaxY) {{
+                                    const dL = Math.abs(nodeR - sMinX);
+                                    const dR = Math.abs(newX - sMaxX);
+                                    const dT = Math.abs(nodeB - sMinY);
+                                    const dB = Math.abs(newY - sMaxY);
+                                    const m = Math.min(dL, dR, dT, dB);
+                                    if (m === dT) newY = sMinY - iconSize;
+                                    else if (m === dB) newY = sMaxY;
+                                    else if (m === dL) newX = sMinX - iconSize;
+                                    else newX = sMaxX;
+                                }}
+                            }});
+                        }}
                     }}
                 }} else {{
                     // AWS Cloud bounds - expandable downward
@@ -1314,6 +1364,33 @@ class HTMLRenderer:
                         // Constrain X and minY, but allow expansion downward
                         newX = Math.max(minX, Math.min(maxX, newX));
                         newY = Math.max(minY, newY);
+
+                        // Prevent global services from entering the VPC area
+                        const vpcBg = document.querySelector('.group-vpc .group-bg');
+                        if (vpcBg) {{
+                            const vpcMinX = parseFloat(vpcBg.dataset.minX);
+                            const vpcMinY = parseFloat(vpcBg.dataset.minY);
+                            const vpcMaxX = parseFloat(vpcBg.dataset.maxX);
+                            const vpcMaxY = parseFloat(vpcBg.dataset.maxY);
+                            const nodeRight = newX + iconSize;
+                            const nodeBottom = newY + iconSize;
+
+                            // Check if node overlaps VPC box
+                            if (nodeRight > vpcMinX && newX < vpcMaxX &&
+                                nodeBottom > vpcMinY && newY < vpcMaxY) {{
+                                // Push to nearest edge outside VPC
+                                const distLeft = Math.abs(nodeRight - vpcMinX);
+                                const distRight = Math.abs(newX - vpcMaxX);
+                                const distTop = Math.abs(nodeBottom - vpcMinY);
+                                const distBottom = Math.abs(newY - vpcMaxY);
+                                const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+
+                                if (minDist === distTop) newY = vpcMinY - iconSize;
+                                else if (minDist === distBottom) newY = vpcMaxY;
+                                else if (minDist === distLeft) newX = vpcMinX - iconSize;
+                                else newX = vpcMaxX;
+                            }}
+                        }}
 
                         // Expand AWS Cloud box and canvas if dragging below current bounds
                         const requiredBottom = newY + iconSize + 40;
@@ -1697,43 +1774,60 @@ class HTMLRenderer:
             const canvas = document.getElementById('export-canvas');
             const ctx = canvas.getContext('2d');
 
-            // Set canvas size
-            const svgRect = svg.getBoundingClientRect();
+            const vbW = svg.viewBox.baseVal.width;
+            const vbH = svg.viewBox.baseVal.height;
             const scale = 2; // Higher resolution
-            canvas.width = svg.viewBox.baseVal.width * scale;
-            canvas.height = svg.viewBox.baseVal.height * scale;
+            canvas.width = vbW * scale;
+            canvas.height = vbH * scale;
 
-            // Create image from SVG
-            const svgData = new XMLSerializer().serializeToString(svg);
-            const svgBlob = new Blob([svgData], {{ type: 'image/svg+xml;charset=utf-8' }});
-            const url = URL.createObjectURL(svgBlob);
+            // Clone SVG so we can modify attributes for standalone rendering
+            const svgClone = svg.cloneNode(true);
+            // Set explicit pixel dimensions (width="100%" won't resolve in a blob image)
+            svgClone.setAttribute('width', vbW);
+            svgClone.setAttribute('height', vbH);
+            svgClone.removeAttribute('style');
+
+            // Embed essential CSS inside the SVG for standalone rendering
+            const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+            styleEl.textContent = `
+                .agg-hidden {{ display: none !important; }}
+                .conn-type-hidden {{ display: none !important; }}
+            `;
+            svgClone.insertBefore(styleEl, svgClone.firstChild);
+
+            // Serialize and encode as data URI (avoids canvas taint from blob URLs)
+            const svgData = new XMLSerializer().serializeToString(svgClone);
+            const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+            const dataUri = 'data:image/svg+xml;base64,' + svgBase64;
 
             const img = new Image();
             img.onload = () => {{
-                // White background for JPG
-                if (format === 'jpg') {{
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                }}
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(url);
 
-                const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
-                const quality = format === 'jpg' ? 0.95 : undefined;
-                const dataUrl = canvas.toDataURL(mimeType, quality);
+                try {{
+                    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+                    const quality = format === 'jpg' ? 0.95 : undefined;
+                    const dataUrl = canvas.toDataURL(mimeType, quality);
 
-                // Show modal with preview
-                const preview = document.getElementById('export-preview');
-                const download = document.getElementById('export-download');
+                    const preview = document.getElementById('export-preview');
+                    const download = document.getElementById('export-download');
 
-                preview.src = dataUrl;
-                download.href = dataUrl;
-                download.download = `aws-diagram.${{format}}`;
+                    preview.src = dataUrl;
+                    download.href = dataUrl;
+                    download.download = `aws-diagram.${{format}}`;
 
-                document.getElementById('export-modal').classList.add('active');
+                    document.getElementById('export-modal').classList.add('active');
+                }} catch (err) {{
+                    alert('Export failed: ' + err.message);
+                }}
             }};
-            img.src = url;
+            img.onerror = () => {{
+                alert('Failed to render SVG for export.');
+            }};
+            img.src = dataUri;
         }}
 
         function closeExportModal() {{
@@ -1760,6 +1854,8 @@ class HTMLRenderer:
             {{ id: 'data_flow', label: 'Data Flow', color: '#3B48CC' }},
             {{ id: 'trigger', label: 'Event Trigger', color: '#E7157B' }},
             {{ id: 'encrypt', label: 'Encryption', color: '#6c757d' }},
+            {{ id: 'network_flow', label: 'Network Flow', color: '#0d7c3f' }},
+            {{ id: 'security_rule', label: 'Security Rule', color: '#d97706' }},
             {{ id: 'default', label: 'Reference', color: '#999999' }}
         ];
         const connTypeFilterState = {{}};
@@ -1860,7 +1956,9 @@ class HTMLRenderer:
             aggG.dataset.serviceId = `__agg_${{serviceType}}`;
             aggG.dataset.serviceType = serviceType;
             aggG.dataset.tooltip = `${{group.label}} (${{group.count}} resources - click to inspect)`;
-            aggG.dataset.isVpc = 'false';
+            // Inherit VPC status from the first service in the group
+            const firstNode = document.querySelector(`[data-service-id="${{group.serviceIds[0]}}"]`);
+            aggG.dataset.isVpc = (firstNode && firstNode.dataset.isVpc === 'true') ? 'true' : 'false';
             aggG.setAttribute('transform', `translate(${{centroid.x}}, ${{centroid.y}})`);
             aggG.style.cursor = 'pointer';
 
@@ -1958,8 +2056,8 @@ class HTMLRenderer:
                     const dx = Math.abs(e.clientX - aggDragStartPos.x);
                     const dy = Math.abs(e.clientY - aggDragStartPos.y);
                     if (dx < 5 && dy < 5) {{
-                        // This was a click, not a drag
-                        e.stopPropagation();
+                        // This was a click, not a drag — show popover
+                        // Do NOT stopPropagation: SVG mouseup must fire to clear drag state
                         showAggregatePopover(serviceType, e.clientX, e.clientY);
                     }}
                 }}
@@ -2071,6 +2169,8 @@ class HTMLRenderer:
                 'data_flow': {{ color: '#3B48CC', dash: '', marker: 'url(#arrowhead-data)' }},
                 'trigger': {{ color: '#E7157B', dash: '', marker: 'url(#arrowhead-trigger)' }},
                 'encrypt': {{ color: '#6c757d', dash: '4,4', marker: 'url(#arrowhead)' }},
+                'network_flow': {{ color: '#0d7c3f', dash: '', marker: 'url(#arrowhead-network)' }},
+                'security_rule': {{ color: '#d97706', dash: '2,4', marker: 'url(#arrowhead-security)' }},
                 'default': {{ color: '#999999', dash: '', marker: 'url(#arrowhead)' }},
             }};
 
@@ -2432,6 +2532,8 @@ class HTMLRenderer:
                 'data_flow': {{ color: '#3B48CC', dash: '', marker: 'url(#arrowhead-data)' }},
                 'trigger': {{ color: '#E7157B', dash: '', marker: 'url(#arrowhead-trigger)' }},
                 'encrypt': {{ color: '#6c757d', dash: '4,4', marker: 'url(#arrowhead)' }},
+                'network_flow': {{ color: '#0d7c3f', dash: '', marker: 'url(#arrowhead-network)' }},
+                'security_rule': {{ color: '#d97706', dash: '2,4', marker: 'url(#arrowhead-security)' }},
                 'default': {{ color: '#999999', dash: '', marker: 'url(#arrowhead)' }},
             }};
 
