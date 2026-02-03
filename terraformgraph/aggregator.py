@@ -14,6 +14,7 @@ from .config_loader import ConfigLoader
 from .parser import ParseResult, TerraformResource
 
 if TYPE_CHECKING:
+    from .terraform_tools import TerraformStateResult
     from .variable_resolver import VariableResolver
 
 
@@ -29,6 +30,7 @@ class Subnet:
     subnet_type: str  # 'public', 'private', 'database', 'unknown'
     availability_zone: str
     cidr_block: Optional[str] = None
+    aws_id: Optional[str] = None  # AWS subnet ID (e.g., 'subnet-xxx') from state
 
 
 @dataclass
@@ -63,26 +65,34 @@ class VPCStructure:
 @dataclass
 class LogicalService:
     """A high-level logical service aggregating multiple resources."""
+
     service_type: str  # e.g., 'alb', 'ecs', 's3', 'sqs'
     name: str
     icon_resource_type: str  # The Terraform type to use for the icon
     resources: List[TerraformResource] = field(default_factory=list)
     count: int = 1  # How many instances (e.g., 24 SQS queues)
     is_vpc_resource: bool = False
-    attributes: Dict[str, str] = field(default_factory=dict)
+    subnet_ids: List[str] = field(
+        default_factory=list
+    )  # Subnet resource IDs this service belongs to
+    resource_id: Optional[str] = None  # For de-grouped VPC services, uses resource's full_id
 
     @property
     def id(self) -> str:
+        # Use resource_id for de-grouped services (unique per resource)
+        if self.resource_id:
+            return self.resource_id
         return f"{self.service_type}.{self.name}"
 
 
 @dataclass
 class LogicalConnection:
     """A connection between logical services."""
+
     source_id: str
     target_id: str
     label: Optional[str] = None
-    connection_type: str = 'default'  # 'default', 'data_flow', 'trigger', 'encrypt'
+    connection_type: str = "default"  # 'default', 'data_flow', 'trigger', 'encrypt'
 
 
 @dataclass
@@ -112,11 +122,13 @@ class ResourceAggregator:
         for service_name, config in flat_rules.items():
             # Map YAML format (primary/secondary/in_vpc) to internal format
             result[service_name] = {
-                'primary': config.get("primary", []),
-                'aggregate': config.get("secondary", []),  # secondary in YAML -> aggregate internally
-                'icon': config.get("primary", [""])[0] if config.get("primary") else "",
-                'display_name': service_name.replace("_", " ").title(),
-                'is_vpc': config.get("in_vpc", False),
+                "primary": config.get("primary", []),
+                "aggregate": config.get(
+                    "secondary", []
+                ),  # secondary in YAML -> aggregate internally
+                "icon": config.get("primary", [""])[0] if config.get("primary") else "",
+                "display_name": service_name.replace("_", " ").title(),
+                "is_vpc": config.get("in_vpc", False),
             }
         return result
 
@@ -124,15 +136,152 @@ class ResourceAggregator:
         """Build a mapping from resource type to aggregation rule."""
         self._type_to_rule: Dict[str, str] = {}
         for rule_name, rule in self._aggregation_rules.items():
-            for res_type in rule['primary']:
+            for res_type in rule["primary"]:
                 self._type_to_rule[res_type] = rule_name
-            for res_type in rule['aggregate']:
+            for res_type in rule["aggregate"]:
                 self._type_to_rule[res_type] = rule_name
+
+    def _extract_subnet_ids(
+        self,
+        resources: List[TerraformResource],
+        state_result: Optional["TerraformStateResult"] = None,
+    ) -> List[str]:
+        """Extract unique subnet IDs from a list of resources.
+
+        Checks both HCL attributes and terraform state for subnet information.
+
+        Args:
+            resources: List of TerraformResource objects
+            state_result: Optional terraform state with resolved values
+
+        Returns:
+            List of unique subnet resource IDs (e.g., ['aws_subnet.public', 'aws_subnet.private'])
+        """
+        subnet_ids: Set[str] = set()
+
+        # Build state index if available
+        state_index: Dict[str, Dict[str, Any]] = {}
+        if state_result:
+            from .terraform_tools import map_state_to_resource_id
+
+            for state_res in state_result.resources:
+                resource_id = map_state_to_resource_id(state_res.address)
+                state_index[resource_id] = state_res.values
+
+        for resource in resources:
+            # Check state values first (more accurate)
+            if resource.full_id in state_index:
+                state_values = state_index[resource.full_id]
+                # Check for subnet_id (single)
+                subnet_id = state_values.get("subnet_id")
+                if subnet_id and isinstance(subnet_id, str):
+                    # State contains actual subnet ID (vpc-xxx), need to map back
+                    # For now, store the raw value - we'll match by ID later
+                    subnet_ids.add(f"_state_subnet:{subnet_id}")
+
+                # Check for subnet_ids (list)
+                subnet_id_list = state_values.get("subnet_ids")
+                if subnet_id_list and isinstance(subnet_id_list, list):
+                    for sid in subnet_id_list:
+                        if isinstance(sid, str):
+                            subnet_ids.add(f"_state_subnet:{sid}")
+
+                # Check for subnets (list) - used by ALB/NLB resources
+                subnets_list = state_values.get("subnets")
+                if subnets_list and isinstance(subnets_list, list):
+                    for sid in subnets_list:
+                        if isinstance(sid, str):
+                            subnet_ids.add(f"_state_subnet:{sid}")
+
+            # Check HCL attributes for references like aws_subnet.public.id
+            # Search in common attribute names and nested structures
+            self._extract_subnet_refs_from_attrs(resource.attributes, subnet_ids)
+
+        return list(subnet_ids)
+
+    def _extract_subnet_refs_from_attrs(
+        self,
+        attrs: Any,
+        subnet_ids: Set[str],
+        depth: int = 0,
+    ) -> None:
+        """Recursively extract subnet references from attributes.
+
+        Searches through nested dicts and lists for aws_subnet references.
+
+        Args:
+            attrs: Attribute value (dict, list, or string)
+            subnet_ids: Set to add found subnet IDs to
+            depth: Current recursion depth (max 5 to prevent infinite loops)
+        """
+        if depth > 5:
+            return
+
+        if isinstance(attrs, dict):
+            # Check specific keys that commonly contain subnet info
+            for key in ("subnet_id", "subnet_ids", "subnets", "network_configuration"):
+                if key in attrs:
+                    self._extract_subnet_refs_from_attrs(attrs[key], subnet_ids, depth + 1)
+            # Also check all values for nested structures
+            for value in attrs.values():
+                if isinstance(value, (dict, list)):
+                    self._extract_subnet_refs_from_attrs(value, subnet_ids, depth + 1)
+        elif isinstance(attrs, list):
+            for item in attrs:
+                self._extract_subnet_refs_from_attrs(item, subnet_ids, depth + 1)
+        elif isinstance(attrs, str):
+            # Look for aws_subnet.name references
+            for match in re.finditer(r"aws_subnet\.(\w+)", attrs):
+                subnet_name = match.group(1)
+                subnet_ids.add(f"aws_subnet.{subnet_name}")
+
+    def _get_resource_display_name(
+        self,
+        resource: TerraformResource,
+        resolver: Optional["VariableResolver"] = None,
+    ) -> str:
+        """Extract display name for a single resource.
+
+        Args:
+            resource: TerraformResource to get display name for
+            resolver: Optional VariableResolver for resolving interpolations
+
+        Returns:
+            Human-readable display name for the resource
+        """
+        # Try to get name from attributes or use resource_name
+        attr_name = resource.attributes.get("name", "")
+        fallback_name = resource.resource_name
+
+        display_name = fallback_name
+
+        # If attribute name contains unresolved variables, use resource_name
+        if isinstance(attr_name, str) and attr_name:
+            # Resolve any variable interpolations
+            if resolver:
+                resolved_name = resolver.resolve(attr_name)
+                # If still contains ${, fall back to resource name
+                if "${" not in resolved_name:
+                    display_name = resolved_name
+            else:
+                # If it doesn't contain ${, use attr_name
+                if "${" not in attr_name:
+                    display_name = attr_name
+
+        # Clean up underscore-based names to be more readable
+        display_name = display_name.replace("_", " ").title()
+
+        # Truncate long names
+        if len(display_name) > 20:
+            display_name = display_name[:17] + "..."
+
+        return display_name
 
     def aggregate(
         self,
         parse_result: ParseResult,
         terraform_dir: Optional[Union[str, Path]] = None,
+        state_result: Optional["TerraformStateResult"] = None,
     ) -> AggregatedResult:
         """Aggregate parsed resources into logical services.
 
@@ -149,99 +298,82 @@ class ResourceAggregator:
         resolver = None
         if terraform_dir is not None:
             from .variable_resolver import VariableResolver
+
             resolver = VariableResolver(terraform_dir)
 
         # Group resources by aggregation rule
         rule_resources: Dict[str, List[TerraformResource]] = {}
-        unmatched: List[TerraformResource] = []
 
         for resource in parse_result.resources:
             rule_name = self._type_to_rule.get(resource.resource_type)
             if rule_name:
                 rule_resources.setdefault(rule_name, []).append(resource)
-            else:
-                unmatched.append(resource)
 
         # Create logical services from grouped resources
         for rule_name, resources in rule_resources.items():
             rule = self._aggregation_rules[rule_name]
 
             # Count primary resources
-            primary_count = sum(1 for r in resources if r.resource_type in rule['primary'])
-            if primary_count == 0:
+            primary_resources = [r for r in resources if r.resource_type in rule["primary"]]
+            if not primary_resources:
                 continue  # Skip if no primary resources
 
-            # Get actual resource name from primary resource if available
-            display_name = rule['display_name']
-            primary_resources = [r for r in resources if r.resource_type in rule['primary']]
-            if primary_resources:
-                first_resource = primary_resources[0]
-                # Try to get name from attributes or use resource_name
-                attr_name = first_resource.attributes.get('name', '')
-                fallback_name = first_resource.resource_name
+            # De-group ALL resources - create one LogicalService per primary resource
+            for resource in primary_resources:
+                # Extract subnet_ids for this specific resource
+                subnet_ids = self._extract_subnet_ids([resource], state_result)
 
-                # If attribute name contains unresolved variables, use resource_name
-                if isinstance(attr_name, str) and attr_name:
-                    # Resolve any variable interpolations
-                    if resolver:
-                        resolved_name = resolver.resolve(attr_name)
-                        # If still contains ${, fall back to resource name
-                        if '${' in resolved_name:
-                            display_name = fallback_name
-                        else:
-                            display_name = resolved_name
-                    else:
-                        # If it contains ${, use resource_name, else use attr_name
-                        if '${' in attr_name:
-                            display_name = fallback_name
-                        else:
-                            display_name = attr_name
+                # Get display name for this specific resource
+                display_name = self._get_resource_display_name(resource, resolver)
+
+                service = LogicalService(
+                    service_type=rule_name,
+                    name=display_name,
+                    icon_resource_type=rule["icon"],
+                    resources=[resource],  # Single resource
+                    count=1,
+                    is_vpc_resource=rule["is_vpc"],
+                    subnet_ids=subnet_ids,
+                    resource_id=resource.full_id,  # Unique ID for this resource
+                )
+
+                result.services.append(service)
+                if rule["is_vpc"]:
+                    result.vpc_services.append(service)
                 else:
-                    display_name = fallback_name
-
-                # Clean up underscore-based names to be more readable
-                display_name = display_name.replace('_', ' ').title()
-
-                # Truncate long names
-                if len(display_name) > 20:
-                    display_name = display_name[:17] + "..."
-
-            service = LogicalService(
-                service_type=rule_name,
-                name=display_name,
-                icon_resource_type=rule['icon'],
-                resources=resources,
-                count=primary_count,
-                is_vpc_resource=rule['is_vpc'],
-            )
-
-            result.services.append(service)
-            if service.is_vpc_resource:
-                result.vpc_services.append(service)
-            else:
-                result.global_services.append(service)
+                    result.global_services.append(service)
 
         # Create logical connections based on which services exist
-        # Build a mapping from service_type to actual service object
-        service_by_type = {s.service_type: s for s in result.services}
+        # Build a mapping from service_type to list of services (supports de-grouped services)
+        services_by_type: Dict[str, List[LogicalService]] = {}
+        for s in result.services:
+            services_by_type.setdefault(s.service_type, []).append(s)
+
         for conn in self._logical_connections:
-            source = conn.get("source", "")
-            target = conn.get("target", "")
-            if source in service_by_type and target in service_by_type:
-                source_service = service_by_type[source]
-                target_service = service_by_type[target]
-                result.connections.append(LogicalConnection(
-                    source_id=source_service.id,
-                    target_id=target_service.id,
-                    label=conn.get("label", ""),
-                    connection_type=conn.get("type", "default"),
-                ))
+            source_type = conn.get("source", "")
+            target_type = conn.get("target", "")
+            if source_type in services_by_type and target_type in services_by_type:
+                source_services = services_by_type[source_type]
+                target_services = services_by_type[target_type]
+                # Connect each source to each target of matching type
+                for source_service in source_services:
+                    for target_service in target_services:
+                        result.connections.append(
+                            LogicalConnection(
+                                source_id=source_service.id,
+                                target_id=target_service.id,
+                                label=conn.get("label", ""),
+                                connection_type=conn.get("type", "default"),
+                            )
+                        )
 
         # Build VPC structure if resolver is available
         if resolver is not None:
             vpc_builder = VPCStructureBuilder()
             result.vpc_structure = vpc_builder.build(
-                parse_result.resources, resolver=resolver
+                parse_result.resources,
+                resolver=resolver,
+                state_result=state_result,
             )
 
         return result
@@ -265,13 +397,19 @@ class VPCStructureBuilder:
     # Patterns for detecting subnet type from name/tags
     SUBNET_TYPE_PATTERNS: Dict[str, List[str]] = {
         "public": ["public", "pub", "external", "ext", "dmz", "bastion"],
-        "private": ["private", "priv", "internal", "int", "app", "compute", "worker", "backend", "application"],
+        "private": [
+            "private",
+            "priv",
+            "internal",
+            "int",
+            "app",
+            "compute",
+            "worker",
+            "backend",
+            "application",
+        ],
         "database": ["database", "db", "rds", "data", "storage", "persistence"],
     }
-
-    def __init__(self) -> None:
-        """Initialize the VPCStructureBuilder."""
-        pass
 
     def _detect_availability_zone(
         self, resource: TerraformResource, sequential_index: Optional[int] = None
@@ -383,6 +521,28 @@ class VPCStructureBuilder:
 
         # Service name format: com.amazonaws.<region>.<service>
         # Example: com.amazonaws.us-east-1.s3
+        # But if region is a variable like ${var.aws_region}, we get:
+        # com.amazonaws.${var.aws_region}.s3
+
+        # Strategy: take the last part(s) after the last known prefix
+        # If there's a variable pattern, extract service from the end
+        if "${" in service_name:
+            # Find the service after the variable - typically the last segment
+            # e.g., "com.amazonaws.${var.aws_region}.s3" -> "s3"
+            parts = service_name.split(".")
+            # Get parts after any that contain "${"
+            service_parts = []
+            found_var = False
+            for part in parts:
+                if "${" in part or "}" in part:
+                    found_var = True
+                    service_parts = []  # Reset, service comes after
+                elif found_var:
+                    service_parts.append(part)
+            if service_parts:
+                return ".".join(service_parts)
+
+        # Standard parsing: com.amazonaws.<region>.<service>
         parts = service_name.split(".")
         if len(parts) >= 4:
             # Join everything after the region (handles services like ecr.api)
@@ -438,8 +598,8 @@ class VPCStructureBuilder:
         # Pattern priority: more specific patterns first
         patterns = [
             r"[-_](\d[a-f])$",  # ends with -1a, -1b, _2a
-            r"[-_](\d+)$",      # ends with -1, -2, _3
-            r"[-_]([a-f])$",    # ends with -a, -b, _c
+            r"[-_](\d+)$",  # ends with -1, -2, _3
+            r"[-_]([a-f])$",  # ends with -a, -b, _c
         ]
 
         for pattern in patterns:
@@ -453,18 +613,29 @@ class VPCStructureBuilder:
         self,
         resources: List[TerraformResource],
         resolver: Optional["VariableResolver"] = None,
+        state_result: Optional["TerraformStateResult"] = None,
     ) -> Optional[VPCStructure]:
         """Build VPCStructure from a list of Terraform resources.
 
         Args:
             resources: List of TerraformResource objects
             resolver: Optional VariableResolver for resolving interpolations
+            state_result: Optional TerraformStateResult with actual state values
 
         Returns:
             VPCStructure or None if no VPC found
         """
         if not resources:
             return None
+
+        # Build state lookup index if state is available
+        state_index: Dict[str, Dict[str, Any]] = {}
+        if state_result:
+            from .terraform_tools import map_state_to_resource_id
+
+            for state_res in state_result.resources:
+                resource_id = map_state_to_resource_id(state_res.address)
+                state_index[resource_id] = state_res.values
 
         # Find VPC resource
         vpc_resource = None
@@ -497,8 +668,16 @@ class VPCStructureBuilder:
 
             subnet_type = self._detect_subnet_type(r)
 
-            # Try to get explicit AZ from attributes (e.g., "us-east-1a")
-            explicit_az = self._detect_availability_zone(r)
+            # Try to get explicit AZ - prefer state data if available
+            explicit_az = None
+            if r.full_id in state_index:
+                state_az = state_index[r.full_id].get("availability_zone")
+                if state_az and isinstance(state_az, str):
+                    explicit_az = state_az
+
+            # Fallback to HCL-based detection
+            if not explicit_az:
+                explicit_az = self._detect_availability_zone(r)
 
             # Try to extract suffix from resource name (e.g., "-a", "-1")
             suffix = self._extract_az_suffix(r.resource_name)
@@ -512,12 +691,18 @@ class VPCStructureBuilder:
             else:
                 az_key = None  # Will be assigned later
 
+            # Extract AWS subnet ID from state if available
+            aws_subnet_id = None
+            if r.full_id in state_index:
+                aws_subnet_id = state_index[r.full_id].get("id")
+
             subnet = Subnet(
                 resource_id=r.full_id,
                 name=subnet_name,
                 subnet_type=subnet_type,
                 availability_zone=az_key or "unknown",
                 cidr_block=r.attributes.get("cidr_block"),
+                aws_id=aws_subnet_id,
             )
 
             all_subnets.append((r, subnet, az_key))
@@ -535,7 +720,11 @@ class VPCStructureBuilder:
 
             # If no count, use number of distinct detected AZs or subnet count
             if num_azs == 1:
-                detected_azs = set(az_key for _, _, az_key in all_subnets if az_key and az_key.startswith("detected-"))
+                detected_azs = set(
+                    az_key
+                    for _, _, az_key in all_subnets
+                    if az_key and az_key.startswith("detected-")
+                )
                 if detected_azs:
                     num_azs = len(detected_azs)
                 else:
@@ -565,7 +754,9 @@ class VPCStructureBuilder:
         type_order = {"public": 0, "private": 1, "database": 2, "unknown": 3}
         unassigned: List[Subnet] = []
 
-        for r, subnet, az_key in sorted(all_subnets, key=lambda x: (type_order.get(x[1].subnet_type, 3), x[1].name)):
+        for r, subnet, az_key in sorted(
+            all_subnets, key=lambda x: (type_order.get(x[1].subnet_type, 3), x[1].name)
+        ):
             if az_key and az_key in az_map:
                 az_map[az_key].subnets.append(subnet)
             elif az_key and az_key.startswith("detected-"):
@@ -591,7 +782,9 @@ class VPCStructureBuilder:
 
             # Distribute each type across AZs
             az_letters = "abcdef"
-            for subnet_type in sorted(unassigned_by_type.keys(), key=lambda t: type_order.get(t, 3)):
+            for subnet_type in sorted(
+                unassigned_by_type.keys(), key=lambda t: type_order.get(t, 3)
+            ):
                 for idx, subnet in enumerate(unassigned_by_type[subnet_type]):
                     az_idx = idx % len(availability_zones)
                     # Add AZ indicator to name if distributing multiple of same type
@@ -623,9 +816,3 @@ class VPCStructureBuilder:
             availability_zones=availability_zones,
             endpoints=endpoints,
         )
-
-
-def aggregate_resources(parse_result: ParseResult) -> AggregatedResult:
-    """Convenience function to aggregate resources."""
-    aggregator = ResourceAggregator()
-    return aggregator.aggregate(parse_result)

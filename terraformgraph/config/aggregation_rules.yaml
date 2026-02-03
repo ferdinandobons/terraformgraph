@@ -20,7 +20,17 @@ networking:
 
   vpc:
     primary: ["aws_vpc"]
-    secondary: ["aws_subnet", "aws_route_table", "aws_internet_gateway", "aws_nat_gateway", "aws_route_table_association", "aws_eip"]
+    secondary: ["aws_subnet", "aws_route_table", "aws_route_table_association"]
+    in_vpc: true
+
+  internet_gateway:
+    primary: ["aws_internet_gateway"]
+    secondary: []
+    in_vpc: true
+
+  nat_gateway:
+    primary: ["aws_nat_gateway"]
+    secondary: ["aws_eip"]
     in_vpc: true
 
   security_groups:
@@ -129,4 +139,269 @@ serverless:
   step_functions:
     primary: ["aws_sfn_state_machine"]
     secondary: []
+    in_vpc: false
+
+# AI/ML Services
+ai_ml:
+  sagemaker:
+    primary: ["aws_sagemaker_endpoint", "aws_sagemaker_model", "aws_sagemaker_notebook_instance"]
+    secondary: ["aws_sagemaker_endpoint_configuration", "aws_sagemaker_domain", "aws_sagemaker_user_profile", "aws_sagemaker_app", "aws_sagemaker_feature_group"]
+    in_vpc: false
+
+  bedrock:
+    primary: ["aws_bedrock_custom_model", "aws_bedrock_model_invocation_logging_configuration"]
+    secondary: ["aws_bedrock_provisioned_model_throughput"]
+    in_vpc: false
+
+  comprehend:
+    primary: ["aws_comprehend_entity_recognizer", "aws_comprehend_document_classifier"]
+    secondary: []
+    in_vpc: false
+
+  rekognition:
+    primary: ["aws_rekognition_collection", "aws_rekognition_project"]
+    secondary: []
+    in_vpc: false
+
+  textract:
+    primary: []
+    secondary: []
+    in_vpc: false
+
+  polly:
+    primary: []
+    secondary: []
+    in_vpc: false
+
+  translate:
+    primary: []
+    secondary: []
+    in_vpc: false
+
+  lex:
+    primary: ["aws_lex_bot", "aws_lexv2_bot"]
+    secondary: ["aws_lex_intent", "aws_lex_slot_type", "aws_lexv2_bot_locale"]
+    in_vpc: false
+
+# Analytics Services
+analytics:
+  athena:
+    primary: ["aws_athena_workgroup", "aws_athena_database"]
+    secondary: ["aws_athena_named_query", "aws_athena_data_catalog"]
+    in_vpc: false
+
+  glue:
+    primary: ["aws_glue_catalog_database", "aws_glue_job", "aws_glue_crawler"]
+    secondary: ["aws_glue_catalog_table", "aws_glue_connection", "aws_glue_trigger", "aws_glue_workflow", "aws_glue_classifier"]
+    in_vpc: false
+
+  emr:
+    primary: ["aws_emr_cluster"]
+    secondary: ["aws_emr_instance_group", "aws_emr_security_configuration", "aws_emr_studio"]
+    in_vpc: true
+
+  opensearch:
+    primary: ["aws_opensearch_domain", "aws_elasticsearch_domain"]
+    secondary: ["aws_opensearch_domain_policy", "aws_elasticsearch_domain_policy"]
+    in_vpc: true
+
+  msk:
+    primary: ["aws_msk_cluster"]
+    secondary: ["aws_msk_configuration", "aws_msk_scram_secret_association"]
+    in_vpc: true
+
+  kinesis:
+    primary: ["aws_kinesis_stream", "aws_kinesis_firehose_delivery_stream"]
+    secondary: ["aws_kinesis_analytics_application", "aws_kinesisanalyticsv2_application"]
+    in_vpc: false
+
+  quicksight:
+    primary: ["aws_quicksight_data_source", "aws_quicksight_analysis"]
+    secondary: ["aws_quicksight_dashboard", "aws_quicksight_dataset", "aws_quicksight_user", "aws_quicksight_group"]
+    in_vpc: false
+
+  redshift:
+    primary: ["aws_redshift_cluster"]
+    secondary: ["aws_redshift_subnet_group", "aws_redshift_parameter_group", "aws_redshift_snapshot_schedule"]
+    in_vpc: true
+
+# Developer Tools
+developer_tools:
+  codecommit:
+    primary: ["aws_codecommit_repository"]
+    secondary: ["aws_codecommit_trigger", "aws_codecommit_approval_rule_template"]
+    in_vpc: false
+
+  codebuild:
+    primary: ["aws_codebuild_project"]
+    secondary: ["aws_codebuild_source_credential", "aws_codebuild_webhook", "aws_codebuild_report_group"]
+    in_vpc: false
+
+  codepipeline:
+    primary: ["aws_codepipeline"]
+    secondary: ["aws_codepipeline_webhook"]
+    in_vpc: false
+
+  codedeploy:
+    primary: ["aws_codedeploy_app", "aws_codedeploy_deployment_group"]
+    secondary: ["aws_codedeploy_deployment_config"]
+    in_vpc: false
+
+  codeartifact:
+    primary: ["aws_codeartifact_domain", "aws_codeartifact_repository"]
+    secondary: ["aws_codeartifact_domain_permissions_policy", "aws_codeartifact_repository_permissions_policy"]
+    in_vpc: false
+
+# IoT Services
+iot:
+  iot_core:
+    primary: ["aws_iot_thing", "aws_iot_policy"]
+    secondary: ["aws_iot_certificate", "aws_iot_thing_type", "aws_iot_topic_rule", "aws_iot_thing_principal_attachment"]
+    in_vpc: false
+
+  iot_analytics:
+    primary: ["aws_iotanalytics_channel", "aws_iotanalytics_pipeline", "aws_iotanalytics_datastore"]
+    secondary: ["aws_iotanalytics_dataset"]
+    in_vpc: false
+
+  iot_events:
+    primary: ["aws_iot_events_input", "aws_iot_events_detector_model"]
+    secondary: []
+    in_vpc: false
+
+  iot_greengrass:
+    primary: ["aws_greengrass_group"]
+    secondary: ["aws_greengrass_core_definition", "aws_greengrass_device_definition", "aws_greengrass_function_definition"]
+    in_vpc: false
+
+# Media Services
+media:
+  mediaconvert:
+    primary: ["aws_media_convert_queue"]
+    secondary: []
+    in_vpc: false
+
+  medialive:
+    primary: ["aws_medialive_channel", "aws_medialive_input"]
+    secondary: ["aws_medialive_input_security_group"]
+    in_vpc: false
+
+  mediapackage:
+    primary: ["aws_media_package_channel"]
+    secondary: []
+    in_vpc: false
+
+  mediastore:
+    primary: ["aws_media_store_container"]
+    secondary: ["aws_media_store_container_policy"]
+    in_vpc: false
+
+# Additional Database Services
+database_extended:
+  documentdb:
+    primary: ["aws_docdb_cluster"]
+    secondary: ["aws_docdb_cluster_instance", "aws_docdb_subnet_group", "aws_docdb_cluster_parameter_group"]
+    in_vpc: true
+
+  neptune:
+    primary: ["aws_neptune_cluster"]
+    secondary: ["aws_neptune_cluster_instance", "aws_neptune_subnet_group", "aws_neptune_parameter_group"]
+    in_vpc: true
+
+  memorydb:
+    primary: ["aws_memorydb_cluster"]
+    secondary: ["aws_memorydb_subnet_group", "aws_memorydb_parameter_group", "aws_memorydb_user", "aws_memorydb_acl"]
+    in_vpc: true
+
+  timestream:
+    primary: ["aws_timestreamwrite_database", "aws_timestreamwrite_table"]
+    secondary: []
+    in_vpc: false
+
+  qldb:
+    primary: ["aws_qldb_ledger"]
+    secondary: ["aws_qldb_stream"]
+    in_vpc: false
+
+# Container Services Extended
+containers:
+  ecr:
+    primary: ["aws_ecr_repository"]
+    secondary: ["aws_ecr_lifecycle_policy", "aws_ecr_repository_policy", "aws_ecr_replication_configuration"]
+    in_vpc: false
+
+  eks:
+    primary: ["aws_eks_cluster"]
+    secondary: ["aws_eks_node_group", "aws_eks_fargate_profile", "aws_eks_addon", "aws_eks_identity_provider_config"]
+    in_vpc: true
+
+  apprunner:
+    primary: ["aws_apprunner_service"]
+    secondary: ["aws_apprunner_connection", "aws_apprunner_auto_scaling_configuration_version", "aws_apprunner_vpc_connector"]
+    in_vpc: false
+
+  batch:
+    primary: ["aws_batch_compute_environment", "aws_batch_job_queue"]
+    secondary: ["aws_batch_job_definition", "aws_batch_scheduling_policy"]
+    in_vpc: true
+
+# Management and Governance
+management:
+  cloudtrail:
+    primary: ["aws_cloudtrail"]
+    secondary: ["aws_cloudtrail_event_data_store"]
+    in_vpc: false
+
+  config:
+    primary: ["aws_config_configuration_recorder", "aws_config_config_rule"]
+    secondary: ["aws_config_delivery_channel", "aws_config_configuration_aggregator"]
+    in_vpc: false
+
+  ssm:
+    primary: ["aws_ssm_parameter", "aws_ssm_document"]
+    secondary: ["aws_ssm_association", "aws_ssm_maintenance_window", "aws_ssm_patch_baseline"]
+    in_vpc: false
+
+  servicecatalog:
+    primary: ["aws_servicecatalog_portfolio", "aws_servicecatalog_product"]
+    secondary: ["aws_servicecatalog_portfolio_share", "aws_servicecatalog_principal_portfolio_association"]
+    in_vpc: false
+
+  organizations:
+    primary: ["aws_organizations_organization", "aws_organizations_account"]
+    secondary: ["aws_organizations_organizational_unit", "aws_organizations_policy"]
+    in_vpc: false
+
+# Application Integration Extended
+integration:
+  appsync:
+    primary: ["aws_appsync_graphql_api"]
+    secondary: ["aws_appsync_datasource", "aws_appsync_resolver", "aws_appsync_api_key"]
+    in_vpc: false
+
+  mq:
+    primary: ["aws_mq_broker"]
+    secondary: ["aws_mq_configuration"]
+    in_vpc: true
+
+  appflow:
+    primary: ["aws_appflow_flow"]
+    secondary: ["aws_appflow_connector_profile"]
+    in_vpc: false
+
+# Observability
+observability:
+  xray:
+    primary: ["aws_xray_sampling_rule", "aws_xray_group"]
+    secondary: ["aws_xray_encryption_config"]
+    in_vpc: false
+
+  prometheus:
+    primary: ["aws_prometheus_workspace"]
+    secondary: ["aws_prometheus_rule_group_namespace", "aws_prometheus_alert_manager_definition"]
+    in_vpc: false
+
+  grafana:
+    primary: ["aws_grafana_workspace"]
+    secondary: ["aws_grafana_role_association", "aws_grafana_workspace_api_key"]
     in_vpc: false

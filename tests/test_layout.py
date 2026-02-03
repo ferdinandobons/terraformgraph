@@ -5,17 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest
 
 from terraformgraph.aggregator import (
     AggregatedResult,
     AvailabilityZone,
-    LogicalService,
     Subnet,
     VPCEndpoint,
     VPCStructure,
 )
-from terraformgraph.layout import LayoutConfig, LayoutEngine, Position, ServiceGroup
+from terraformgraph.layout import LayoutConfig, LayoutEngine, Position
 
 
 class TestLayoutEngine:
@@ -40,12 +38,13 @@ class TestLayoutEngine:
         engine = LayoutEngine()
         aggregated = AggregatedResult(services=[], connections=[])
 
-        positions, groups = engine.compute_layout(aggregated)
+        positions, groups, actual_height = engine.compute_layout(aggregated)
 
         assert isinstance(positions, dict)
         assert isinstance(groups, list)
-        # Should have at least AWS Cloud and VPC groups
-        assert len(groups) >= 2
+        assert isinstance(actual_height, int)
+        # Should have at least AWS Cloud group
+        assert len(groups) >= 1
 
 
 class TestComputeVPCHeight:
@@ -409,7 +408,7 @@ class TestComputeLayoutWithVPCStructure:
             vpc_structure=vpc_structure,
         )
 
-        positions, groups = engine.compute_layout(aggregated)
+        positions, groups, actual_height = engine.compute_layout(aggregated)
 
         # Should have AWS Cloud, VPC, and AZ groups
         group_types = [g.group_type for g in groups]
@@ -454,7 +453,7 @@ class TestComputeLayoutWithVPCStructure:
             vpc_structure=vpc_structure,
         )
 
-        positions, groups = engine.compute_layout(aggregated)
+        positions, groups, actual_height = engine.compute_layout(aggregated)
 
         # Find VPC group
         vpc_group = next(g for g in groups if g.group_type == "vpc")
@@ -471,12 +470,9 @@ class TestComputeLayoutWithVPCStructure:
             vpc_structure=None,
         )
 
-        positions, groups = engine.compute_layout(aggregated)
+        positions, groups, actual_height = engine.compute_layout(aggregated)
 
         # Should still work
         assert isinstance(positions, dict)
         assert isinstance(groups, list)
-
-        # VPC group should have default height
-        vpc_group = next(g for g in groups if g.group_type == "vpc")
-        assert vpc_group.position.height == 180
+        assert isinstance(actual_height, int)

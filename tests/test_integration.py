@@ -22,7 +22,7 @@ class TestFullPipeline:
 
         resource_types = {r.resource_type for r in result.resources}
         assert "aws_vpc" in resource_types
-        assert "aws_ecs_cluster" in resource_types
+        assert "aws_subnet" in resource_types
         assert "aws_s3_bucket" in resource_types
 
     def test_aggregation(self, simple_example):
@@ -51,7 +51,7 @@ class TestFullPipeline:
 
         # Layout
         layout = LayoutEngine()
-        positions, groups = layout.compute_layout(aggregated)
+        positions, groups, actual_height = layout.compute_layout(aggregated)
 
         # Render
         icon_mapper = IconMapper()  # No icons path - uses fallback
@@ -59,8 +59,7 @@ class TestFullPipeline:
         html_renderer = HTMLRenderer(svg_renderer)
 
         html = html_renderer.render_html(
-            aggregated, positions, groups,
-            environment="test"
+            aggregated, positions, groups, environment="test", actual_height=actual_height
         )
 
         # Write output
