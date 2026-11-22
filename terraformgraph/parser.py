@@ -255,6 +255,7 @@ class TerraformParser:
     def _parse_module(self, source: str, base_path: Path, module_name: str) -> ParseResult:
         """Parse a module from its source path."""
         # Resolve relative path
+        source = source.strip("\"'") # Remove quotes if present
         if source.startswith("../") or source.startswith("./"):
             module_path = (base_path / source).resolve()
         else:
