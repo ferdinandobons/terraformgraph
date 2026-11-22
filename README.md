@@ -207,6 +207,11 @@ connections:
     type: data_flow
 ```
 
+### Limitations/Known Issues
+- terraform modules having source value mapped to local paths only are supported. 
+ Eg - Source = "../modules" etc..work; However Source = "git@github.com/" etc..doesn't work. 
+
+
 ## Supported Resources
 
 The tool supports 100+ AWS resource types including:
